@@ -1,0 +1,3 @@
+schema: registry/v1
+domains:
+  - vox-reputation

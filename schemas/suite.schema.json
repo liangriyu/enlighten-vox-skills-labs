@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/suite.schema.json",
+  "title": "Suite manifest",
+  "type": "object",
+  "required": ["schema", "id", "version", "skills"],
+  "properties": {
+    "schema": {
+      "const": "suite/v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+/[a-z0-9-]+$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

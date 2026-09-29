@@ -1,0 +1,13 @@
+schema: skill/v1
+id: vox-reputation/vox-patrol-env-init
+version: 0.1.0
+name: Vox Patrol Environment Init
+entry: SKILL.md
+compatibility:
+  agents:
+    - codex
+    - enlighten-ai
+resources:
+  - SKILL.md
+  - references/**
+  - scripts/**

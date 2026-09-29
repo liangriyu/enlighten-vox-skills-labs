@@ -1,0 +1,14 @@
+{
+  "name": "enlighten-vox-skills-manager",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "skills": "node packages/cli/src/index.js",
+    "test": "node --test packages/cli/test/*.test.js",
+    "validate:manifests": "node packages/cli/src/index.js validate"
+  }
+}

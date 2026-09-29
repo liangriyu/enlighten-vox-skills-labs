@@ -1,0 +1,8 @@
+schema: suite/v1
+id: vox-reputation/vox-keyword-patrol
+version: 0.1.0
+name: Vox Keyword Patrol
+description: Initialize and run keyword-based Vox reputation patrols with evidence export and Feishu writeback.
+skills:
+  - vox-reputation/vox-patrol-env-init
+  - vox-reputation/vox-keyword-patrol

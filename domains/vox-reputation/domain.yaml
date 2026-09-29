@@ -1,0 +1,4 @@
+schema: domain/v1
+id: vox-reputation
+name: Vox Reputation
+description: Vox keyword reputation patrol suites and reusable skills.

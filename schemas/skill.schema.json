@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/skill.schema.json",
+  "title": "Skill manifest",
+  "type": "object",
+  "required": ["schema", "id", "version", "entry"],
+  "properties": {
+    "schema": {
+      "const": "skill/v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+/[a-z0-9-]+$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "entry": {
+      "type": "string"
+    }
+  }
+}
