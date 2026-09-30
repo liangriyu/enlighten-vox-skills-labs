@@ -1,6 +1,6 @@
 {
   "name": "@enlighten-vox/skills",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Git-backed Skill manager CLI for Codex and Enlighten AI.",
   "type": "module",
   "bin": {

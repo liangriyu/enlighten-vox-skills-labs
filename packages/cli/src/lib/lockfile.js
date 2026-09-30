@@ -10,7 +10,7 @@ export async function writeInstallState(resolved, plan, options = {}) {
 
   const lockfile = await readLockfile(lockfilePath);
   lockfile.lockfileVersion = 1;
-  lockfile.generatedBy = "@enlighten-vox/skills@0.1.0";
+  lockfile.generatedBy = "@enlighten-vox/skills@0.1.1";
   lockfile.installed ??= {};
 
   for (let index = 0; index < resolved.skills.length; index += 1) {
@@ -74,7 +74,7 @@ export async function writeInstallState(resolved, plan, options = {}) {
 export function emptyLockfile() {
   return {
     lockfileVersion: 1,
-    generatedBy: "@enlighten-vox/skills@0.1.0",
+    generatedBy: "@enlighten-vox/skills@0.1.1",
     installed: {}
   };
 }
@@ -82,7 +82,7 @@ export function emptyLockfile() {
 export function normalizeLockfile(lockfile) {
   return {
     lockfileVersion: lockfile.lockfileVersion ?? 1,
-    generatedBy: lockfile.generatedBy ?? "@enlighten-vox/skills@0.1.0",
+    generatedBy: lockfile.generatedBy ?? "@enlighten-vox/skills@0.1.1",
     installed: lockfile.installed ?? {}
   };
 }

@@ -375,7 +375,7 @@ CLI 必须限制安装范围，只复制 manifest 声明的 resource，避免把
 
 ```yaml
 lockfileVersion: 1
-generatedBy: "@enlighten-vox/skills@0.1.0"
+generatedBy: "@enlighten-vox/skills@0.1.1"
 
 installed:
   "skill:ecommerce/competitor-analysis":
@@ -880,14 +880,14 @@ V1 安全规则：
 
 独立版本：
 
-- CLI version：`@enlighten-vox/skills@0.1.0`
+- CLI version：`@enlighten-vox/skills@0.1.1`
 - Suite version：`ecommerce/amazon-seller@1.0.0`
 - Skill version：`ecommerce/listing-copy@1.0.0`
 
 推荐 scoped tag：
 
 ```text
-cli@0.1.0
+cli@0.1.1
 suite/ecommerce/amazon-seller@1.0.0
 skill/ecommerce/listing-copy@1.0.0
 skill/ecommerce/competitor-analysis@1.0.0
