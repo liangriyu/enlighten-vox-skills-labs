@@ -1,7 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import readline from "node:readline/promises";
 import { CliUsageError } from "./errors.js";
 
 export async function resolveProjectScope(options, io = {}) {
@@ -11,25 +10,7 @@ export async function resolveProjectScope(options, io = {}) {
   }
 
   const cwd = io.cwd ?? process.cwd();
-  const stdin = io.stdin ?? process.stdin;
-  const stdout = io.stdout ?? process.stdout;
-  let projectDirInput = options.projectDir;
-
-  if (!projectDirInput) {
-    const nonInteractive = options.yes || !stdin.isTTY;
-    if (nonInteractive) {
-      throw new CliUsageError(
-        "`--scope project` requires `--project-dir <path>` in non-interactive mode."
-      );
-    }
-
-    const rl = readline.createInterface({ input: stdin, output: stdout });
-    try {
-      projectDirInput = await rl.question("Project directory: ");
-    } finally {
-      rl.close();
-    }
-  }
+  const projectDirInput = options.projectDir ?? cwd;
 
   const projectDir = resolveExistingDirectory(projectDirInput, cwd);
   return {

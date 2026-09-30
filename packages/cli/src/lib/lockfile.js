@@ -10,7 +10,7 @@ export async function writeInstallState(resolved, plan, options = {}) {
 
   const lockfile = await readLockfile(lockfilePath);
   lockfile.lockfileVersion = 1;
-  lockfile.generatedBy = "@org/skills@0.1.0";
+  lockfile.generatedBy = "@enlighten-vox/skills@0.1.0";
   lockfile.installed ??= {};
 
   for (let index = 0; index < resolved.skills.length; index += 1) {
@@ -21,16 +21,20 @@ export async function writeInstallState(resolved, plan, options = {}) {
       type: "skill",
       version: skill.version,
       domain: skill.id.split("/")[0],
-      source: {
-        type: "workspace",
-        path: path.relative(options.rootDir ?? process.cwd(), skill.manifestPath)
-      },
+      source: buildSourceRecord(resolved.source, skill.manifestPath, options),
       integrity: await calculateSkillIntegrity(skill),
       agents: {}
     };
 
     entry.type = "skill";
     entry.version = skill.version;
+    entry.domain = skill.id.split("/")[0];
+    entry.source = buildSourceRecord(resolved.source, skill.manifestPath, options);
+    entry.integrity = await calculateSkillIntegrity(skill);
+    entry.requestedBy = mergeUnique(
+      entry.requestedBy,
+      resolved.suite ? `suite:${resolved.suite.id}` : `skill:${skill.id}`
+    );
     entry.agents ??= {};
     entry.agents[plan.agent] ??= {};
     entry.agents[plan.agent][plan.scope] = lockRecord(record);
@@ -38,19 +42,45 @@ export async function writeInstallState(resolved, plan, options = {}) {
   }
 
   if (resolved.suite) {
-    lockfile.installed[`suite:${resolved.suite.id}`] = {
-      type: "suite",
-      version: resolved.suite.version,
-      source: {
-        type: "workspace",
-        path: path.relative(options.rootDir ?? process.cwd(), resolved.suite.manifestPath)
-      },
-      requestedBy: resolved.skills.map((skill) => skill.id)
-    };
+    const suiteKey = `suite:${resolved.suite.id}`;
+    const suiteEntry = lockfile.installed[suiteKey] ?? {};
+    suiteEntry.type = "suite";
+    suiteEntry.version = resolved.suite.version;
+    suiteEntry.source = buildSourceRecord(
+      resolved.source,
+      resolved.suite.manifestPath,
+      options
+    );
+    suiteEntry.skills = resolved.skills.map((skill) => skill.id);
+    suiteEntry.requestedBy = resolved.skills.map((skill) => skill.id);
+    suiteEntry.agents ??= {};
+    suiteEntry.agents[plan.agent] ??= {};
+    suiteEntry.agents[plan.agent][plan.scope] = compactObject({
+      scope: plan.scope,
+      projectDir: plan.project?.projectDir,
+      projectId: plan.project?.projectId
+    });
+    lockfile.installed[suiteKey] = suiteEntry;
   }
 
-  await atomicWrite(lockfilePath, `${JSON.stringify(lockfile, null, 2)}\n`);
+  await writeLockfile(lockfilePath, lockfile);
   return lockfilePath;
+}
+
+export function emptyLockfile() {
+  return {
+    lockfileVersion: 1,
+    generatedBy: "@enlighten-vox/skills@0.1.0",
+    installed: {}
+  };
+}
+
+export function normalizeLockfile(lockfile) {
+  return {
+    lockfileVersion: lockfile.lockfileVersion ?? 1,
+    generatedBy: lockfile.generatedBy ?? "@enlighten-vox/skills@0.1.0",
+    installed: lockfile.installed ?? {}
+  };
 }
 
 export async function writeProjectConfig(projectScope, plan, options = {}) {
@@ -63,13 +93,13 @@ export async function writeProjectConfig(projectScope, plan, options = {}) {
   const existing = await readTextIfExists(configPath);
 
   if (existing !== null) {
-    if (!existing.includes('managedBy: "@org/skills"') && options.force !== true) {
+    if (!existing.includes('managedBy: "@enlighten-vox/skills"') && options.force !== true) {
       throw new CliUsageError(
         `Refusing to overwrite unmanaged project config: ${configPath}. Use --force to replace it.`
       );
     }
 
-    if (!existing.includes('managedBy: "@org/skills"') && options.force === true) {
+    if (!existing.includes('managedBy: "@enlighten-vox/skills"') && options.force === true) {
       await fs.writeFile(
         configPath,
         renderProjectConfig(projectScope, plan, options, target),
@@ -105,7 +135,7 @@ export async function assertProjectConfigReady(projectScope, options = {}) {
   const existing = await readTextIfExists(configPath);
   if (
     existing !== null &&
-    !existing.includes('managedBy: "@org/skills"') &&
+    !existing.includes('managedBy: "@enlighten-vox/skills"') &&
     options.force !== true
   ) {
     throw new CliUsageError(
@@ -117,7 +147,7 @@ export async function assertProjectConfigReady(projectScope, options = {}) {
 function renderProjectConfig(projectScope, plan, options, target) {
   const lines = [
     "schema: project-config/v1",
-    'managedBy: "@org/skills"',
+    'managedBy: "@enlighten-vox/skills"',
     `agent: ${plan.agent}`,
     "scope: project",
     `projectDir: ${quote(projectScope.projectDir)}`,
@@ -154,7 +184,7 @@ export function resolveLockfilePath(plan, options = {}) {
   return path.join(stateDir, "skills.lock");
 }
 
-async function readLockfile(filePath) {
+export async function readLockfile(filePath) {
   const content = await readTextIfExists(filePath);
   if (content === null || !content.trim()) {
     return { lockfileVersion: 1, installed: {} };
@@ -167,6 +197,11 @@ async function readLockfile(filePath) {
   }
 }
 
+export async function writeLockfile(filePath, lockfile) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await atomicWrite(filePath, `${JSON.stringify(sortLockfile(lockfile), null, 2)}\n`);
+}
+
 function lockRecord(record) {
   return Object.fromEntries(
     Object.entries(record).filter(
@@ -175,7 +210,7 @@ function lockRecord(record) {
   );
 }
 
-async function readTextIfExists(filePath) {
+export async function readTextIfExists(filePath) {
   try {
     return await fs.readFile(filePath, "utf8");
   } catch (error) {
@@ -194,4 +229,76 @@ async function atomicWrite(filePath, content) {
 
 function quote(value) {
   return JSON.stringify(String(value));
+}
+
+function mergeUnique(existing, value) {
+  const values = Array.isArray(existing) ? existing : [];
+  return [...new Set([...values, value])].sort();
+}
+
+function sortLockfile(lockfile) {
+  const installed = lockfile.installed ?? {};
+  return {
+    ...lockfile,
+    installed: Object.fromEntries(
+      Object.keys(installed)
+        .sort()
+        .map((key) => [key, sortEntry(installed[key])])
+    )
+  };
+}
+
+function sortEntry(entry) {
+  const sorted = { ...entry };
+  if (Array.isArray(sorted.requestedBy)) {
+    sorted.requestedBy = [...sorted.requestedBy].sort();
+  }
+  if (Array.isArray(sorted.skills)) {
+    sorted.skills = [...sorted.skills].sort();
+  }
+  if (sorted.agents && typeof sorted.agents === "object") {
+    sorted.agents = Object.fromEntries(
+      Object.keys(sorted.agents)
+        .sort()
+        .map((agent) => [
+          agent,
+          Object.fromEntries(
+            Object.keys(sorted.agents[agent])
+              .sort()
+              .map((scope) => [scope, sorted.agents[agent][scope]])
+          )
+        ])
+    );
+  }
+  return sorted;
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+
+function buildSourceRecord(source, manifestPath, options = {}) {
+  const effectiveSource = source ?? { type: "workspace" };
+  if (effectiveSource.type === "workspace") {
+    return {
+      type: "workspace",
+      path: path.relative(options.rootDir ?? process.cwd(), manifestPath)
+    };
+  }
+
+  const localRoot = effectiveSource.localRoot ?? options.rootDir ?? process.cwd();
+  const skillPath = toPosix(path.relative(localRoot, path.dirname(manifestPath))) || ".";
+  return compactObject({
+    type: effectiveSource.type,
+    sourceType: effectiveSource.type,
+    sourceUrl: effectiveSource.url,
+    sourceRequest: effectiveSource.request,
+    ref: effectiveSource.ref,
+    commit: effectiveSource.commit,
+    skillPath
+  });
+}
+
+function toPosix(value) {
+  return value.split(path.sep).join("/");
 }

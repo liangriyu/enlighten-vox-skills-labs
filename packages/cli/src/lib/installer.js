@@ -21,6 +21,116 @@ export async function preflightInstallTargets(plan, options = {}) {
   }
 }
 
+export async function removeInstalledSkill(record, options = {}) {
+  const check = await checkInstallTarget(record);
+  if (check.status === "missing") {
+    return check;
+  }
+
+  if (check.status !== "passed" && options.force !== true) {
+    throw new CliUsageError(check.message);
+  }
+
+  await fs.rm(record.installPath, { recursive: true, force: true });
+  return {
+    ...check,
+    status: check.status === "passed" ? "removed" : "force-removed"
+  };
+}
+
+export async function checkInstallTarget(record) {
+  const marker = record.marker ?? markerNameForAgent(record.agent);
+  const markerPath = path.join(record.installPath, marker);
+
+  try {
+    const stat = await fs.stat(record.installPath);
+    if (!stat.isDirectory()) {
+      return {
+        status: "failed",
+        markerPath,
+        message: `Install target is not a directory: ${record.installPath}`
+      };
+    }
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return {
+        status: "missing",
+        markerPath,
+        message: `Install target is missing: ${record.installPath}`
+      };
+    }
+    throw error;
+  }
+
+  let markerValue;
+  try {
+    markerValue = JSON.parse(await fs.readFile(markerPath, "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return {
+        status: "failed",
+        markerPath,
+        message: `Install target is not managed by @enlighten-vox/skills: ${record.installPath}`
+      };
+    }
+    return {
+      status: "failed",
+      markerPath,
+      message: `Install target marker is invalid: ${markerPath}`
+    };
+  }
+
+  if (markerValue.managedBy !== "@enlighten-vox/skills") {
+    return {
+      status: "failed",
+      markerPath,
+      message: `Install target marker is not owned by @enlighten-vox/skills: ${markerPath}`
+    };
+  }
+
+  if (markerValue.id !== record.id) {
+    return {
+      status: "failed",
+      markerPath,
+      message: `Install target belongs to another skill (${markerValue.id}): ${record.installPath}`
+    };
+  }
+
+  if (record.agent && markerValue.agent && markerValue.agent !== record.agent) {
+    return {
+      status: "failed",
+      markerPath,
+      message: `Install target agent mismatch (${markerValue.agent}): ${record.installPath}`
+    };
+  }
+
+  if (record.scope && markerValue.scope && markerValue.scope !== record.scope) {
+    return {
+      status: "failed",
+      markerPath,
+      message: `Install target scope mismatch (${markerValue.scope}): ${record.installPath}`
+    };
+  }
+
+  if (
+    record.instanceKey &&
+    markerValue.instance_key &&
+    markerValue.instance_key !== record.instanceKey
+  ) {
+    return {
+      status: "failed",
+      markerPath,
+      message: `Install target instance key mismatch (${markerValue.instance_key}): ${record.installPath}`
+    };
+  }
+
+  return {
+    status: "passed",
+    markerPath,
+    marker: markerValue
+  };
+}
+
 export async function installSkill(skill, record, plan, options = {}) {
   const sourceRoot = path.dirname(skill.manifestPath);
   await prepareInstallDirectory(record.installPath, record.marker, record.id, options);
@@ -142,7 +252,7 @@ function normalizeResourcePattern(pattern) {
 
 function buildInstallMarker(record, plan, options) {
   return compactObject({
-    managedBy: "@org/skills",
+    managedBy: "@enlighten-vox/skills",
     schema: "installed-skill/v1",
     agent: plan.agent,
     id: record.id,
@@ -156,6 +266,10 @@ function buildInstallMarker(record, plan, options) {
     instance_key: record.instanceKey,
     source: options.source ?? "workspace"
   });
+}
+
+export function markerNameForAgent(agent) {
+  return agent === "enlighten-ai" ? ".enlighten-install.json" : ".skills-manager.json";
 }
 
 async function writeJson(filePath, value) {

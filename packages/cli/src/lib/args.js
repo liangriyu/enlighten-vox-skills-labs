@@ -7,13 +7,26 @@ const STRING_OPTIONS = new Set([
   "enlighten-user-data",
   "state-dir",
   "organization-id",
-  "space-id"
+  "space-id",
+  "suite",
+  "skill"
 ]);
 
 const BOOLEAN_OPTIONS = new Set(["dry-run", "yes", "verbose", "help", "force"]);
 
 export function parseArgs(argv) {
   const [command, ...tokens] = argv;
+  if (command === "--help" || command === "-h") {
+    return {
+      command: "help",
+      target: undefined,
+      positional: [],
+      options: {
+        help: true
+      }
+    };
+  }
+
   const options = {};
   const positional = [];
 

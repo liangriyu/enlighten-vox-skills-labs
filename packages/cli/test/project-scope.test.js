@@ -12,15 +12,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "../../..");
 
-test("project scope fails in non-interactive mode without projectDir", async () => {
-  await assert.rejects(
-    () =>
-      resolveProjectScope(
-        { scope: "project", yes: true },
-        { cwd: repoRoot, stdin: { isTTY: false } }
-      ),
-    /--project-dir <path>/
+test("top-level help option prints CLI usage", async () => {
+  const stdout = createWriter();
+  const stderr = createWriter();
+  const exitCode = await run(["--help"], {
+    cwd: repoRoot,
+    stdin: { isTTY: false },
+    stdout,
+    stderr
+  });
+
+  assert.equal(exitCode, 0, stderr.output);
+  assert.match(stdout.output, /@enlighten-vox\/skills MVP/);
+  assert.match(stdout.output, /skills update/);
+});
+
+test("project scope defaults to cwd in non-interactive mode without projectDir", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-default-"));
+  const projectScope = await resolveProjectScope(
+    { scope: "project", yes: true },
+    { cwd: projectDir, stdin: { isTTY: false } }
   );
+
+  assert.equal(projectScope.projectDir, fsSync.realpathSync(projectDir));
+  assert.match(projectScope.projectId, /^project-[a-f0-9]{12}$/);
 });
 
 test("enlighten project dry-run binds selected projectDir to scoped install path", async () => {
@@ -127,7 +142,7 @@ test("enlighten project install writes skills, marker, project config, and lockf
       "utf8"
     )
   );
-  assert.match(config, /managedBy: "@org\/skills"/);
+  assert.match(config, /managedBy: "@enlighten-vox\/skills"/);
   assert.match(config, /vox-reputation\/vox-keyword-patrol/);
   assert.equal(
     lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].project
@@ -219,6 +234,469 @@ test("codex project install writes the local skill and manager marker", async ()
   assert.equal(marker.agent, "codex");
   assert.equal(marker.scope, "project");
   assert.equal(await fs.readFile(path.join(skillRoot, "SKILL.md"), "utf8").then(Boolean), true);
+});
+
+test("list reads installed project skills from lockfile", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-list-"));
+  const installStdout = createWriter();
+  const installStderr = createWriter();
+  const listStdout = createWriter();
+  const listStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installStdout,
+        stderr: installStderr
+      }
+    ),
+    0,
+    installStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "list",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: listStdout,
+        stderr: listStderr
+      }
+    ),
+    0,
+    listStderr.output
+  );
+
+  const result = JSON.parse(listStdout.output);
+  assert.equal(result.schema, "list-result/v1");
+  assert.deepEqual(
+    result.installed.map((entry) => entry.key),
+    [
+      "skill:vox-reputation/vox-keyword-patrol",
+      "skill:vox-reputation/vox-patrol-env-init",
+      "suite:vox-reputation/vox-keyword-patrol"
+    ]
+  );
+  assert.equal(
+    result.installed.find((entry) => entry.key === "suite:vox-reputation/vox-keyword-patrol")
+      .agents[0].agent,
+    "codex"
+  );
+});
+
+test("remove suite deletes manager-owned project skill dirs and updates lockfile", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-remove-"));
+  const installStdout = createWriter();
+  const installStderr = createWriter();
+  const removeStdout = createWriter();
+  const removeStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installStdout,
+        stderr: installStderr
+      }
+    ),
+    0,
+    installStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "remove",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: removeStdout,
+        stderr: removeStderr
+      }
+    ),
+    0,
+    removeStderr.output
+  );
+
+  const result = JSON.parse(removeStdout.output);
+  assert.equal(result.schema, "remove-result/v1");
+  assert.equal(result.removed.length, 2);
+  assert.deepEqual(
+    result.removed.map((entry) => entry.status),
+    ["removed", "removed"]
+  );
+  assert.equal(
+    fsSync.existsSync(path.join(projectDir, ".codex", "skills", "vox-keyword-patrol")),
+    false
+  );
+  assert.equal(
+    fsSync.existsSync(path.join(projectDir, ".codex", "skills", "vox-patrol-env-init")),
+    false
+  );
+  assert.deepEqual(
+    JSON.parse(await fs.readFile(path.join(projectDir, "skills.lock"), "utf8")).installed,
+    {}
+  );
+});
+
+test("remove suite keeps directly requested shared skills", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-shared-remove-"));
+  const installSkillStdout = createWriter();
+  const installSkillStderr = createWriter();
+  const installSuiteStdout = createWriter();
+  const installSuiteStderr = createWriter();
+  const removeStdout = createWriter();
+  const removeStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-patrol-env-init",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installSkillStdout,
+        stderr: installSkillStderr
+      }
+    ),
+    0,
+    installSkillStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installSuiteStdout,
+        stderr: installSuiteStderr
+      }
+    ),
+    0,
+    installSuiteStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "remove",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: removeStdout,
+        stderr: removeStderr
+      }
+    ),
+    0,
+    removeStderr.output
+  );
+
+  const result = JSON.parse(removeStdout.output);
+  assert.deepEqual(result.removed.map((entry) => entry.marker.id), [
+    "vox-reputation/vox-keyword-patrol"
+  ]);
+  assert.deepEqual(result.kept, [
+    {
+      id: "vox-reputation/vox-patrol-env-init",
+      reason: "Still referenced by skill:vox-reputation/vox-patrol-env-init"
+    }
+  ]);
+  assert.equal(
+    fsSync.existsSync(path.join(projectDir, ".codex", "skills", "vox-keyword-patrol")),
+    false
+  );
+  assert.equal(
+    fsSync.existsSync(path.join(projectDir, ".codex", "skills", "vox-patrol-env-init")),
+    true
+  );
+
+  const lockfile = JSON.parse(await fs.readFile(path.join(projectDir, "skills.lock"), "utf8"));
+  assert.deepEqual(Object.keys(lockfile.installed), [
+    "skill:vox-reputation/vox-patrol-env-init"
+  ]);
+  assert.deepEqual(
+    lockfile.installed["skill:vox-reputation/vox-patrol-env-init"].requestedBy,
+    ["skill:vox-reputation/vox-patrol-env-init"]
+  );
+});
+
+test("update refreshes a workspace suite install from source", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-update-"));
+  const installStdout = createWriter();
+  const installStderr = createWriter();
+  const updateStdout = createWriter();
+  const updateStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installStdout,
+        stderr: installStderr
+      }
+    ),
+    0,
+    installStderr.output
+  );
+
+  const installedSkillPath = path.join(
+    projectDir,
+    ".codex",
+    "skills",
+    "vox-keyword-patrol",
+    "SKILL.md"
+  );
+  const lockfilePath = path.join(projectDir, "skills.lock");
+  await fs.writeFile(installedSkillPath, "stale installed skill\n", "utf8");
+  const staleLockfile = JSON.parse(await fs.readFile(lockfilePath, "utf8"));
+  staleLockfile.installed["skill:vox-reputation/vox-keyword-patrol"].integrity =
+    "sha256-stale";
+  await fs.writeFile(lockfilePath, `${JSON.stringify(staleLockfile, null, 2)}\n`, "utf8");
+
+  assert.equal(
+    await run(
+      [
+        "update",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: updateStdout,
+        stderr: updateStderr
+      }
+    ),
+    0,
+    updateStderr.output
+  );
+
+  const result = JSON.parse(updateStdout.output);
+  assert.equal(result.schema, "update-result/v1");
+  assert.deepEqual(result.updated.map((entry) => entry.request), [
+    "vox-reputation/vox-keyword-patrol"
+  ]);
+  assert.equal(
+    await fs.readFile(installedSkillPath, "utf8"),
+    await fs.readFile(
+      path.join(repoRoot, "domains/vox-reputation/skills/vox-keyword-patrol/SKILL.md"),
+      "utf8"
+    )
+  );
+  assert.notEqual(
+    JSON.parse(await fs.readFile(lockfilePath, "utf8")).installed[
+      "skill:vox-reputation/vox-keyword-patrol"
+    ].integrity,
+    "sha256-stale"
+  );
+});
+
+test("update rejects suite-managed skill targets unless directly installed", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-update-owned-"));
+  const installStdout = createWriter();
+  const installStderr = createWriter();
+  const updateStdout = createWriter();
+  const updateStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installStdout,
+        stderr: installStderr
+      }
+    ),
+    0,
+    installStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "update",
+        "vox-reputation/vox-patrol-env-init",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--dry-run"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: updateStdout,
+        stderr: updateStderr
+      }
+    ),
+    2
+  );
+  assert.match(updateStderr.output, /Update the suite instead/);
+});
+
+test("doctor validates project lockfile and manager markers", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-doctor-"));
+  const installStdout = createWriter();
+  const installStderr = createWriter();
+  const doctorStdout = createWriter();
+  const doctorStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installStdout,
+        stderr: installStderr
+      }
+    ),
+    0,
+    installStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "doctor",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: doctorStdout,
+        stderr: doctorStderr
+      }
+    ),
+    0,
+    doctorStderr.output
+  );
+
+  const result = JSON.parse(doctorStdout.output);
+  assert.equal(result.schema, "doctor-result/v1");
+  assert.equal(result.checks.every((check) => check.status !== "failed"), true);
+  assert.equal(
+    result.checks.filter((check) => check.id.startsWith("install:")).length,
+    2
+  );
 });
 
 function createWriter() {

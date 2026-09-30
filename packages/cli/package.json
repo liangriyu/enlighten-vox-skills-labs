@@ -1,15 +1,33 @@
 {
-  "name": "@org/skills",
+  "name": "@enlighten-vox/skills",
   "version": "0.1.0",
-  "private": true,
+  "description": "Git-backed Skill manager CLI for Codex and Enlighten AI.",
   "type": "module",
   "bin": {
     "skills": "src/index.js"
   },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=18"
+  },
+  "keywords": [
+    "skills",
+    "codex",
+    "enlighten-ai",
+    "git",
+    "gitee",
+    "github",
+    "gitlab"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

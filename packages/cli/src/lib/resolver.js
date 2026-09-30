@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { CliUsageError } from "./errors.js";
+import { discoverSource, selectDiscoveredRequest } from "./discovery.js";
+import { withMaterializedSource } from "./git-source.js";
 import { readManifest } from "./manifest.js";
+import { parseSource } from "./source-parser.js";
 
 export function resolveRequest(target, options = {}) {
   if (!target) {
@@ -23,7 +26,12 @@ export function resolveRequest(target, options = {}) {
       request: target,
       targetType: "suite",
       suite,
-      skills
+      skills,
+      source: {
+        type: "workspace",
+        localRoot: rootDir,
+        request: target
+      }
     };
   }
 
@@ -32,11 +40,61 @@ export function resolveRequest(target, options = {}) {
       request: target,
       targetType: "skill",
       suite: null,
-      skills: [loadSkill(rootDir, target)]
+      skills: [loadSkill(rootDir, target)],
+      source: {
+        type: "workspace",
+        localRoot: rootDir,
+        request: target
+      }
     };
   }
 
   throw new CliUsageError(`Unknown suite or skill: ${target}`);
+}
+
+export async function withResolvedInstallRequest(target, options = {}, callback) {
+  let workspaceError;
+  let workspaceResolved;
+  try {
+    workspaceResolved = resolveRequest(target, {
+      rootDir: options.rootDir ?? process.cwd()
+    });
+  } catch (error) {
+    workspaceError = error;
+  }
+
+  if (workspaceResolved) {
+    return callback(workspaceResolved);
+  }
+
+  let source;
+  try {
+    source = parseSource(target, { cwd: options.rootDir ?? process.cwd() });
+  } catch {
+    throw workspaceError;
+  }
+
+  return withMaterializedSource(
+    source,
+    async ({ rootDir, repositoryRoot, source: materializedSource }) => {
+      const discovered = await discoverSource(rootDir);
+      const selected = selectDiscoveredRequest(discovered, {
+        suite: options.suite,
+        skill: options.skill
+      });
+
+      return callback({
+        ...selected,
+        source: {
+          ...materializedSource,
+          localRoot: repositoryRoot,
+          sourceRoot: rootDir,
+          request: target
+        }
+      });
+    },
+    options
+  );
 }
 
 export function skillDirectoryName(skillId) {

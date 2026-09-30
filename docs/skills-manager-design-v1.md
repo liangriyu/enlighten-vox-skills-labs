@@ -17,7 +17,7 @@
 - Git 是 Skill Source of Truth。
 - npm 只作为 CLI 分发渠道。
 - `npx` 只负责零安装运行 CLI，不直接承担 Skill 管理语义。
-- 真正的管理器是 `@org/skills` CLI。
+- 真正的管理器是 `@enlighten-vox/skills` CLI。
 - Skill、Suite、CLI 三套版本体系必须相互独立。
 
 ## 2. 推荐方案
@@ -38,9 +38,9 @@ Git Monorepo
 ```text
                        npm Registry
                             |
-                     @org/skills CLI
+                     @enlighten-vox/skills CLI
                             |
-                npx @org/skills@latest
+                npx @enlighten-vox/skills@latest
                             |
                             v
                   Skill Manager CLI
@@ -79,7 +79,7 @@ Git Monorepo
 - Skill 不被 npm package 模型绑架。
 - 一个仓库多领域、多 Suite 的结构天然适合 Git Monorepo。
 - Suite 作为组合关系，不复制 Skill 目录。
-- 用户体验仍然保持简单：`npx @org/skills add ecommerce/amazon-seller`。
+- 用户体验仍然保持简单：`npx @enlighten-vox/skills add ecommerce/amazon-seller`。
 - 后续支持私有 Git、多 registry、多 Agent、权限声明、lockfile、版本解析时，不需要推翻 V1。
 
 ## 3. V1 范围
@@ -89,15 +89,15 @@ V1 必须支持：
 - Git Monorepo 目录规范。
 - `registry.yaml`、`domain.yaml`、`suite.yaml`、`skill.yaml` 四类 manifest。
 - `skills.lock` 锁定实际安装结果。
-- `@org/skills` CLI。
-- `npx @org/skills add <suite|skill>`。
-- `npx @org/skills remove <suite|skill>`。
-- `npx @org/skills update [suite|skill]`。
-- `npx @org/skills list`。
-- `npx @org/skills doctor`。
+- `@enlighten-vox/skills` CLI。
+- `npx @enlighten-vox/skills add <suite|skill>`。
+- `npx @enlighten-vox/skills remove <suite|skill>`。
+- `npx @enlighten-vox/skills update [suite|skill]`。
+- `npx @enlighten-vox/skills list`。
+- `npx @enlighten-vox/skills doctor`。
 - Codex Adapter。
 - Enlighten AI Adapter。
-- 非交互模式优先，交互模式可后置；但 `--scope project` 必须支持由用户显式选择项目工作目录。
+- 非交互模式优先，交互模式可后置；`--scope project` 默认绑定当前 shell 目录，并必须支持由用户显式选择或传入项目工作目录。
 
 V1 暂不支持：
 
@@ -112,7 +112,46 @@ V1 暂不支持：
 - 完整 Claude Code / Cursor Adapter。
 - Enlighten AI 云端发布、团队空间同步、权限审批流。
 
-## 4. 仓库目录规范
+## 4. Vercel Labs skills 可吸收设计
+
+本方案可吸收 `vercel-labs/skills` 的优秀工程设计，但不照搬其开放生态定位。该项目更像通用 Agent Skill 安装器，重点是从任意 source 发现 `SKILL.md` 并安装到大量 Agent；当前工程的主线仍是企业可治理的 `Domain -> Suite -> Skill` 分发体系，并且 V1 需要优先保护 Codex 与 Enlighten AI 的安装边界。
+
+建议吸收的设计：
+
+- Source Resolver：支持 GitHub shorthand、GitHub/GitLab/Azure URL、repo tree subpath、SSH/Git URL、本地路径、直接 `SKILL.md` 或 archive 下载。当前 V1 仍以本仓库 `registry.yaml` 为默认入口，但 resolver 应预留 `source` 层，后续可扩展为 `npx @enlighten-vox/skills add <source> --suite vox-reputation/vox-keyword-patrol`。
+- Source 安全解析：subpath 必须拒绝 `..` 路径穿越；archive 解压必须拒绝绝对路径、Windows drive 路径和逃逸目标目录的条目。
+- 下载与解压限额：直接下载默认限制总下载大小、解压后大小和文件数，避免把安装器变成不受控内容入口。
+- `SKILL.md` frontmatter 校验：至少要求 `name` 与 `description` 为字符串；不满足条件的候选 Skill 不能进入安装计划。
+- internal skill 开关：支持 `metadata.internal: true` 隐藏未稳定 Skill，只有显式环境变量或显式请求时才展示/安装。
+- bounded discovery：优先扫描标准 Skill 容器目录和 manifest 声明路径；递归扫描只能作为兜底或显式 `--full-depth` 模式，避免把 examples/tests 中的 `SKILL.md` 误当正式 Skill。
+- Agent Adapter 表驱动：普通 Agent 的 project/global skills 目录、detect 逻辑和能力限制用配置表表达；Codex 可以采用该模式，Enlighten AI 必须保留专用 adapter。
+- canonical copy + symlink/copy fallback：多 Agent 安装可先复制到 canonical store，再通过 symlink 暴露给各 Agent；如果 symlink 不可用则 fallback 到 copy。该机制适合 Codex/Claude/Cursor 等普通文件型 Agent，不应直接套到 Enlighten AI 的 scoped capability store。
+- lockfile 可合并性：lockfile 字段应稳定排序、避免时间戳，减少团队协作时的 merge conflict。
+- lockfile source 追踪：记录 `source`、`sourceUrl`、`sourceType`、`ref`、`skillPath`、`computedHash/integrity`，使 update 可以只定位一个 Skill，而不是重新拉取并重装整个 source。
+- 终端输出清洗：远程 Skill 的 name/description/source 信息写到终端前要去除 ANSI escape 与危险控制字符，避免 terminal injection。
+- `use` 命令：可作为后续能力，支持临时拉取一个 Skill 生成 prompt 或启动 Agent，不写入正式 install store，适合试用和调试。
+
+不建议照搬的设计：
+
+- 不把 npm package 变成 Skill 内容仓库；npm 仍只发布 CLI。
+- 不把 project scope 做成无法覆盖的当前目录语义；默认绑定当前 shell 目录，但用户必须可以显式选择或传入 `--project-dir`。
+- 不把 Enlighten AI 当作普通 `.agents/skills` 目录；Enlighten AI 的 device/space scoped capability store、`.enlighten-install.json`、runtime materialization 边界必须保留。
+- 不把开放生态的全 Agent 安装作为 V1 目标；V1 仅支持 Codex 与 Enlighten AI，Claude Code/Cursor 可等 adapter 边界稳定后再接入。
+
+因此，本项目的吸收方式是：
+
+```text
+External Source Resolver / Discovery / Download Guard
+  -> Normalized Candidate Skills
+  -> Domain/Suite Resolver
+  -> Install Plan
+  -> Codex Adapter | Enlighten AI Adapter
+  -> skills.lock / .skillsrc.yaml
+```
+
+也就是说，外部开源设计负责补强“从哪里来、怎么发现、怎么安全读入”，本项目负责决定“哪些 Suite/Skill 被治理、安装到哪里、如何审计和复现”。
+
+## 5. 仓库目录规范
 
 推荐仓库结构：
 
@@ -185,7 +224,7 @@ skills/
 - `packages/cli` 只放 Skill Manager CLI，不放领域 Skill 内容。
 - schema 文件放在根目录 `schemas/`，用于 CI 校验和 CLI 本地校验。
 
-## 5. 领域模型
+## 6. 领域模型
 
 V1 明确定义五个概念：
 
@@ -197,7 +236,7 @@ Registry
   -> Resource
 ```
 
-### 5.1 Registry
+### 6.1 Registry
 
 Registry 是仓库入口索引，负责声明有哪些 Domain 以及它们的位置。
 
@@ -219,7 +258,7 @@ domains:
 
 V1 Registry 直接放在 Git 仓库根目录，不需要数据库和服务端 API。
 
-### 5.2 Domain
+### 6.2 Domain
 
 Domain 只负责领域分类，不参与安装依赖，也不承担版本解析。
 
@@ -232,7 +271,7 @@ name: Ecommerce
 description: Ecommerce workflow skills and suites.
 ```
 
-### 5.3 Suite
+### 6.3 Suite
 
 Suite 是 Skill dependency graph，不是目录集合。
 
@@ -272,7 +311,7 @@ extends:
 
 V1 可以先保留字段，但不实现复杂解析。
 
-### 5.4 Skill
+### 6.4 Skill
 
 Skill 是最小可安装单元。
 
@@ -316,7 +355,7 @@ tags:
 
 V1 中 `entry` 必须指向 `SKILL.md`。
 
-### 5.5 Resource
+### 6.5 Resource
 
 Resource 是随 Skill 一起安装的文件集合，例如：
 
@@ -328,7 +367,7 @@ Resource 是随 Skill 一起安装的文件集合，例如：
 
 CLI 必须限制安装范围，只复制 manifest 声明的 resource，避免把仓库中的无关文件带入用户环境。
 
-## 6. skills.lock 设计
+## 7. skills.lock 设计
 
 `skills.lock` 用于记录实际安装结果，解决复现、升级、卸载和审计问题。
 
@@ -336,7 +375,7 @@ CLI 必须限制安装范围，只复制 manifest 声明的 resource，避免把
 
 ```yaml
 lockfileVersion: 1
-generatedBy: "@org/skills@0.1.0"
+generatedBy: "@enlighten-vox/skills@0.1.0"
 
 installed:
   "skill:ecommerce/competitor-analysis":
@@ -345,9 +384,13 @@ installed:
     domain: ecommerce
     source:
       type: git
-      repo: https://github.com/org/skills.git
+      repo: https://github.com/enlighten-vox/skills.git
+      sourceUrl: https://github.com/enlighten-vox/skills.git
+      sourceType: github
+      ref: main
       commit: 8f29a71
       path: domains/ecommerce/skills/competitor-analysis
+      skillPath: domains/ecommerce/skills/competitor-analysis/SKILL.md
     integrity: sha256-xxx
     agents:
       codex:
@@ -375,7 +418,10 @@ installed:
     version: 1.0.0
     source:
       type: git
-      repo: https://github.com/org/skills.git
+      repo: https://github.com/enlighten-vox/skills.git
+      sourceUrl: https://github.com/enlighten-vox/skills.git
+      sourceType: github
+      ref: main
       commit: 8f29a71
       path: domains/ecommerce/suites/amazon-seller.yaml
 ```
@@ -383,25 +429,29 @@ installed:
 关键字段：
 
 - `source.commit` 锁定 Git commit。
+- `source.sourceUrl/sourceType/ref/path/skillPath` 记录可更新来源，避免 update 时无法定位单个 Skill。
 - `integrity` 锁定内容摘要。
 - `requestedBy` 支持卸载时判断共享 Skill 是否还能删除。
 - `agents` 记录安装到哪些 Agent 以及安装位置。
-- project scope 必须记录用户选择的 `projectDir`，并把该目录下的 `.skillsrc.yaml` / `skills.lock` 与 Agent 的实际安装路径绑定起来。
+- project scope 必须记录解析后的 `projectDir`，并把该目录下的 `.skillsrc.yaml` / `skills.lock` 与 Agent 的实际安装路径绑定起来。
 - lockfile 的 `installed` 使用 `skill:<id>` / `suite:<id>` 命名空间，避免 Suite 与 Skill 入口名称相同时互相覆盖。
+- lockfile 写入必须稳定排序，并避免无业务意义时间戳，降低多人协作时的冲突概率。
 
-## 7. CLI 命令设计
+## 8. CLI 命令设计
 
 V1 命令：
 
 ```bash
-npx @org/skills add ecommerce/amazon-seller
-npx @org/skills add ecommerce/listing-copy
-npx @org/skills add ecommerce/listing-copy@1.0.0
-npx @org/skills remove ecommerce/amazon-seller
-npx @org/skills update
-npx @org/skills update ecommerce/amazon-seller
-npx @org/skills list
-npx @org/skills doctor
+npx @enlighten-vox/skills add ecommerce/amazon-seller
+npx @enlighten-vox/skills add ecommerce/listing-copy
+npx @enlighten-vox/skills add ecommerce/listing-copy@1.0.0
+npx @enlighten-vox/skills remove ecommerce/amazon-seller
+npx @enlighten-vox/skills update
+npx @enlighten-vox/skills update ecommerce/amazon-seller
+npx @enlighten-vox/skills list
+npx @enlighten-vox/skills doctor
+npx @enlighten-vox/skills add <source> --list
+npx @enlighten-vox/skills use <source> --skill <name>
 ```
 
 通用参数：
@@ -423,16 +473,20 @@ npx @org/skills doctor
 --yes
 --force
 --verbose
+--list
+--skill <name>
+--copy
+--full-depth
 ```
 
 Project scope 通用约束：
 
 - `add`、`remove`、`update`、`list`、`doctor` 只要带 `--scope project`，都必须先确定 `projectDir`。
-- 非交互执行时，`--project-dir` 是必填参数；交互执行时，可以由用户选择目录后继续。
+- 未传 `--project-dir` 时默认使用当前 shell 目录；交互执行时可以由用户选择目录后继续。
 - 所有 project scope 命令都从选定 `projectDir` 读取或写入 `.skillsrc.yaml` / `skills.lock`。
 - 不能用 Enlighten AI 的 `by-space/...` 安装目录反推项目工作目录；二者只能通过 lockfile/配置建立显式绑定。
 
-### 7.1 add
+### 8.1 add
 
 职责：
 
@@ -442,21 +496,37 @@ Project scope 通用约束：
 - 解析 Suite 内部 Skill。
 - 检查 Agent 兼容性。
 - 检查 capabilities。
-- 若 `--scope project`，解析用户选择的项目工作目录。
+- 若 `--scope project`，解析项目工作目录；默认当前 shell 目录，`--project-dir` 显式覆盖。
 - 下载或读取 Git source。
 - 校验 integrity。
 - 调用 Agent Adapter 安装。
 - 更新 lockfile。
 
+外部 source 支持建议：
+
+- `owner/repo`
+- `github:owner/repo`
+- `https://github.com/owner/repo`
+- `https://github.com/owner/repo/tree/<ref>/<subpath>`
+- `https://gitlab.com/group/repo`
+- `https://gitlab.com/group/repo/-/tree/<ref>/<subpath>`
+- `https://dev.azure.com/org/project/_git/repo?path=/skills/foo&version=GBmain`
+- `git@github.com:owner/repo.git`
+- `ssh://git@host/org/repo.git`
+- `./local-skills`
+- 直接 `SKILL.md` URL 或 `.zip/.tar/.tar.gz/.tgz` archive URL
+
+V1 可以先实现本仓库 registry source；外部 source 进入 M5 或 M3.5，但设计上必须预留 source-normalization 层。
+
 `--scope project` 的项目目录规则：
 
-- 用户必须自己选择项目工作目录，不能由 CLI 默默使用当前 shell 目录作为最终项目。
-- 非交互模式或带 `--yes` 时，必须传入 `--project-dir <path>`；缺失时直接失败，并提示补充参数。
-- 交互模式下未传 `--project-dir` 时，CLI 可以展示当前目录、最近项目、手动输入路径等选项，由用户确认一个目录。
+- 未传 `--project-dir` 时，CLI 默认使用当前 shell 目录作为项目工作目录。
+- 显式传入 `--project-dir <path>` 时，以该目录作为最终项目目录。
+- 交互模式下可以展示当前目录、最近项目、手动输入路径等选项；如果用户不重新选择，则沿用当前 shell 目录。
 - 选定目录必须解析为绝对路径，并作为项目级 `.skillsrc.yaml` 与 `skills.lock` 的落点。
 - 对 Enlighten AI 来说，项目目录不是 Skill 文件安装目录；Skill 文件仍安装到 Enlighten AI 的 project/space scoped capability store。
 
-### 7.2 remove
+### 8.2 remove
 
 职责：
 
@@ -467,7 +537,7 @@ Project scope 通用约束：
 - 调用 Agent Adapter 删除文件。
 - 更新 lockfile。
 
-### 7.3 update
+### 8.3 update
 
 职责：
 
@@ -479,7 +549,15 @@ Project scope 通用约束：
 
 V1 可以先支持同一 Git 仓库最新 commit 更新，SemVer 解析后置。
 
-### 7.4 list
+当前 MVP 已实现 workspace source 的基础 update：只更新 lockfile 中已安装的顶层 Suite 或直接安装的 Skill，重新读取当前工作区 manifest 并刷新安装内容与 lockfile。Suite 管理的成员 Skill 不允许被单独 update 成直接安装，避免改变引用语义。
+
+更新能力的关键前提：
+
+- lockfile 必须有 `sourceUrl/sourceType/ref/skillPath/integrity`。
+- 若 lockfile 缺少 `skillPath`，只能提示用户重新安装，不能假装可精确更新。
+- local path source 可以记录为相对 `projectDir` 的 portable path；跨磁盘或无法相对化时才保留绝对路径。
+
+### 8.4 list
 
 职责：
 
@@ -487,7 +565,7 @@ V1 可以先支持同一 Git 仓库最新 commit 更新，SemVer 解析后置。
 - 展示已安装 Suite / Skill。
 - 展示 Agent、版本、source commit、安装路径。
 
-### 7.5 doctor
+### 8.5 doctor
 
 职责：
 
@@ -502,7 +580,22 @@ V1 可以先支持同一 Git 仓库最新 commit 更新，SemVer 解析后置。
 - 检查 installed path 是否与 lockfile 一致。
 - 检查 manifest schema 是否通过。
 
-## 8. Resolver 设计
+### 8.6 use
+
+`use` 是临时使用命令，不写入正式 install target 和 lockfile。
+
+职责：
+
+- 解析 source，与 `add` 共用 source resolver 和 discovery。
+- 当 source 内只有一个 Skill 时直接生成使用 prompt。
+- 当 source 内有多个 Skill 时，必须通过 `--skill <name>` 或交互选择确定唯一 Skill。
+- 将 Skill 文件写入临时目录，生成给 Agent 的 prompt，prompt 中只引用临时目录与 `SKILL.md`。
+- 可选 `--agent codex|enlighten-ai` 用于启动对应 Agent；V1 可先只输出 prompt。
+- 命令结束后清理临时目录。
+
+该命令适合试用外部 Skill、评估 prompt、或在正式治理前做人工验证，不应绕过正式安装和审批流程。
+
+## 9. Resolver 设计
 
 Resolver 输入：
 
@@ -525,7 +618,7 @@ interface ResolvedInstallPlan {
 }
 ```
 
-解析步骤：
+基础解析步骤：
 
 1. 解析 `<domain>/<name>[@version]`。
 2. 从 `registry.yaml` 找到 domain path。
@@ -539,7 +632,27 @@ interface ResolvedInstallPlan {
 
 V1 禁止跨 Domain 隐式查找，所有引用必须明确 `<domain>/<skill>` 或处于同 Domain 内。
 
-## 9. Agent Adapter 设计
+外部 source resolver 预留结构：
+
+```ts
+interface ParsedSource {
+  type: "registry" | "github" | "gitlab" | "git" | "local" | "download";
+  url?: string;
+  ref?: string;
+  subpath?: string;
+  localPath?: string;
+  skillFilter?: string;
+}
+```
+
+外部 source resolver 规则：
+
+- 所有 subpath 都必须在 source root 内，拒绝 `..`。
+- fragment ref 只对 Git-like source 生效，普通 URL fragment 不得误解为 Git ref。
+- archive / direct download source 不能默认记录为可自动 update；只有记录了稳定 `sourceUrl/ref/skillPath` 的 source 才可自动更新。
+- source discovery 的输出是候选 Skill，必须再进入 Domain/Suite 或 explicit skill selection 逻辑。
+
+## 10. Agent Adapter 设计
 
 V1 暂定支持 Codex Adapter 和 Enlighten AI Adapter。
 
@@ -556,7 +669,22 @@ interface AgentAdapter {
 }
 ```
 
-### 9.1 Codex Adapter
+普通文件型 Agent 可采用表驱动 adapter：
+
+```ts
+interface FileAgentConfig {
+  id: string;
+  displayName: string;
+  projectSkillsDir: string;
+  globalSkillsDir?: string;
+  detect(): Promise<boolean>;
+  createProjectSkillsDirByDefault?: boolean;
+}
+```
+
+Codex 属于普通文件型 Agent；Claude Code、Cursor 等未来 adapter 也可复用该模型。Enlighten AI 不属于普通文件型 Agent，必须保留专用 adapter。
+
+### 10.1 Codex Adapter
 
 Codex global scope 默认安装到：
 
@@ -564,13 +692,13 @@ Codex global scope 默认安装到：
 ~/.codex/skills/<skill-id>/
 ```
 
-Project scope 安装到用户选择的项目工作目录：
+Project scope 安装到解析后的项目工作目录：
 
 ```text
 <projectDir>/.codex/skills/<skill-id>/
 ```
 
-Codex project scope 与 Enlighten AI project scope 一样，必须先确定 `projectDir`；非交互模式下使用 `--project-dir <path>`，交互模式下由用户选择后继续。
+Codex project scope 与 Enlighten AI project scope 一样，必须先确定 `projectDir`；未传 `--project-dir` 时默认当前 shell 目录，交互模式下仍可由用户选择后继续。
 
 安装规则：
 
@@ -578,8 +706,10 @@ Codex project scope 与 Enlighten AI project scope 一样，必须先确定 `pro
 - 目标目录存在且由当前 manager 管理时允许覆盖。
 - 目标目录存在但没有 `.skills-manager.json` 时拒绝覆盖，除非用户显式 `--force`。
 - 每个安装目录写入 `.skills-manager.json`。
+- 后续多普通 Agent 安装可引入 canonical store：`<projectDir>/.agents/skills/<skill-name>/` 或 `~/.agents/skills/<skill-name>/`，再通过 symlink 暴露给 agent-specific path；symlink 失败时 fallback 到 copy。
+- 安装前必须检测 source path 与 target path 是否重叠，避免清理目标目录时删除用户原始 Skill 源码。
 
-### 9.2 Enlighten AI Adapter
+### 10.2 Enlighten AI Adapter
 
 Enlighten AI Adapter 使用 Enlighten AI Electron `userData` 下的 canonical capability home。正式安装目标分两类：
 
@@ -598,7 +728,7 @@ Project / space scope:
 - project 级安装同时需要两类上下文：
   - 用户选择的本地项目工作目录 `projectDir`，用于写入该项目自己的 `.skillsrc.yaml` 与 `skills.lock`。
   - 当前 Enlighten AI 项目/空间上下文，至少包含 `organizationId` 和 `spaceId`，用于解析 scoped capability store。
-- `projectDir` 由用户选择或通过 `--project-dir <path>` 传入；CLI 不应静默把当前 shell 目录当作最终项目目录。
+- `projectDir` 默认取当前 shell 目录，也可以由用户选择或通过 `--project-dir <path>` 显式传入。
 - `projectDir` 与 `installPath` 是两个不同概念：前者是项目配置和 lockfile 所在目录，后者是 Enlighten AI Electron `userData` 下的 Skill 实际安装目录。
 
 V1 lockfile 中建议记录：
@@ -637,28 +767,29 @@ Enlighten AI Adapter 的边界：
 - 优先复用 Enlighten AI 已有本地安装/导入/物化协议与 `.enlighten-install.json` marker，而不是绕开其 scope 规则裸拷贝。
 - `skills.lock` 记录 `scope`、`projectDir`、`scopeKind`、`installPath`、`instanceKey`、source commit 和 integrity。
 - 验证方式包括路径存在、`.enlighten-install.json` marker、Enlighten AI 本地 Skill 列表、runtime 可调用性或导入 API 回执。
+- 不采用普通 Agent 的 canonical symlink 方案，除非 Enlighten AI 后续明确提供 compatible capability projection API。
 
 路径型安装目标的 `.skills-manager.json` 示例：
 
 ```json
 {
-  "managedBy": "@org/skills",
+  "managedBy": "@enlighten-vox/skills",
   "schema": "installed-skill/v1",
   "id": "competitor-analysis",
   "domain": "ecommerce",
   "version": "1.0.0",
   "source": {
     "type": "git",
-    "repo": "https://github.com/org/skills.git",
+    "repo": "https://github.com/enlighten-vox/skills.git",
     "commit": "8f29a71",
     "path": "domains/ecommerce/skills/competitor-analysis"
   }
 }
 ```
 
-## 10. 安装生命周期
+## 11. 安装生命周期
 
-`npx @org/skills add ecommerce/amazon-seller --agent codex` 或 `--agent enlighten-ai` 生命周期：
+`npx @enlighten-vox/skills add ecommerce/amazon-seller --agent codex` 或 `--agent enlighten-ai` 生命周期：
 
 ```text
 1. Parse command
@@ -691,7 +822,7 @@ npx
 
 这个路径 demo 很快，但无法可靠支持升级、卸载、共享 Skill、审计和复现。
 
-## 11. 安全与权限
+## 12. 安全与权限
 
 Agent Skill 属于可执行行为供应链，不是普通 Markdown。
 
@@ -701,7 +832,7 @@ V1 安装前至少展示：
 Installing ecommerce/amazon-seller
 
 Source:
-  https://github.com/org/skills.git
+  https://github.com/enlighten-vox/skills.git
 
 Version:
   amazon-seller@1.0.0
@@ -736,14 +867,20 @@ V1 安全规则：
 - 记录 source commit 和 integrity。
 - `doctor` 可以复核 lockfile 与本地文件状态。
 - 含 `shell.required: true` 的 Skill 需要明确警告。
+- Skill 目录名必须由 `id/name` 归一化得到，只允许安全字符，并限制长度。
+- 安装目标必须位于 adapter 声明的 base directory 内。
+- source subpath、resource glob、archive entry 都必须禁止路径穿越。
+- 下载类 source 必须有大小、解压大小和文件数量上限。
+- 打印远程 Skill 元数据前必须清洗 ANSI escape 与控制字符。
+- 未检测到 public 状态的私有仓库，不应上传 source/skill 标识到遥测或日志聚合。
 
-## 12. 版本模型
+## 13. 版本模型
 
 不要把整个 repo 版本等同于 Skill/Suite 版本。
 
 独立版本：
 
-- CLI version：`@org/skills@0.1.0`
+- CLI version：`@enlighten-vox/skills@0.1.0`
 - Suite version：`ecommerce/amazon-seller@1.0.0`
 - Skill version：`ecommerce/listing-copy@1.0.0`
 
@@ -758,7 +895,7 @@ skill/ecommerce/competitor-analysis@1.0.0
 
 V1 可以先不自动从 tag 解析版本，但 manifest 必须保留 version 字段。
 
-## 13. 配置文件
+## 14. 配置文件
 
 用户级配置：
 
@@ -774,7 +911,7 @@ schema: config/v1
 registries:
   official:
     type: git
-    url: https://github.com/org/skills.git
+    url: https://github.com/enlighten-vox/skills.git
 
 defaults:
   registry: official
@@ -831,7 +968,7 @@ suites:
 - `skills.lock` 记录每个 Skill 的 Enlighten `installPath` 与 `instanceKey`，但不把 Skill 文件复制到 `projectDir`。
 - V1 可以先支持 `skills.lock`，`.skillsrc.yaml` 在 `init/install` 阶段实现；只要实现 project scope，就必须遵守上述落点。
 
-## 14. CI 与质量门禁
+## 15. CI 与质量门禁
 
 V1 仓库应至少提供：
 
@@ -852,10 +989,13 @@ npm run validate:manifests
 - 同一类型的 Suite/Skill id 不允许重复；lockfile 使用 `suite:<id>` / `skill:<id>` 命名空间，避免 Suite 与 Skill 入口名称相同时发生覆盖。
 - 循环依赖必须失败。
 - 示例安装 plan snapshot 必须稳定。
+- Source parser 必须覆盖 GitHub/GitLab/Azure/SSH/local/direct-download 路径。
+- Security tests 必须覆盖 subpath traversal、archive traversal、oversized download/extract、terminal escape sanitization、source/target overlap。
+- Lockfile tests 必须覆盖稳定排序、local path portable 化、缺少 `skillPath` 时 update 拒绝自动执行。
 
-## 15. V1 交付拆分
+## 16. V1 交付拆分
 
-建议分四个里程碑：
+建议分五个里程碑：
 
 ### M1: 仓库骨架与协议
 
@@ -879,12 +1019,13 @@ npm run validate:manifests
 - 实现 Codex global install。
 - 实现 Enlighten AI global/device install。
 - 实现 Enlighten AI project/space scoped install。
-- 实现 `--scope project --project-dir <path>` 的项目目录解析；交互模式下支持用户选择目录，非交互模式缺失时失败。
+- 实现 `--scope project` 的项目目录解析；默认当前 shell 目录，`--project-dir <path>` 显式覆盖，交互模式下支持用户选择目录。
 - 实现 `.skills-manager.json`。
 - 视 Enlighten AI 协议需要记录 `.enlighten-install.json` install marker。
 - 实现 `skills.lock` 写入。
 - 实现 `list`。
 - 实现基础 `remove`。
+- 实现 workspace source 基础 `update`。
 
 ### M4: Doctor 与发布准备
 
@@ -893,15 +1034,28 @@ npm run validate:manifests
 - 增加 fixture tests。
 - 增加 README 中文使用说明。
 - 配置 npm package `bin`。
-- 准备 `npx @org/skills` 入口。
+- 准备 `npx @enlighten-vox/skills` 入口。
 
-## 16. 验收标准
+### M5: 外部 Source 与试用能力
+
+- 实现 source parser。
+- 支持 local path source。
+- 支持 GitHub/GitLab/Azure/Git URL source。
+- 支持 direct `SKILL.md` / archive download source，带下载和解压限额。
+- 支持 `add <source> --list`。
+- 支持 `add <source> --skill <name>`。
+- 支持 bounded discovery 与 `--full-depth`。
+- 支持 `metadata.internal` 默认隐藏。
+- 支持 `use <source> --skill <name>` 输出临时 prompt。
+- 扩展 lockfile 的 source/update 字段。
+
+## 17. 验收标准
 
 最小验收场景：
 
 ```bash
-npx @org/skills add ecommerce/amazon-seller --agent codex --dry-run
-npx @org/skills add ecommerce/amazon-seller --agent enlighten-ai --dry-run
+npx @enlighten-vox/skills add ecommerce/amazon-seller --agent codex --dry-run
+npx @enlighten-vox/skills add ecommerce/amazon-seller --agent enlighten-ai --dry-run
 ```
 
 必须输出稳定 install plan。
@@ -909,9 +1063,9 @@ npx @org/skills add ecommerce/amazon-seller --agent enlighten-ai --dry-run
 实际安装：
 
 ```bash
-npx @org/skills add ecommerce/amazon-seller --agent codex --yes
-npx @org/skills add ecommerce/amazon-seller --agent enlighten-ai --enlighten-flavor local --yes
-npx @org/skills add ecommerce/amazon-seller --agent enlighten-ai --scope project --project-dir /Users/example/workspace/acme-project --enlighten-flavor local --yes
+npx @enlighten-vox/skills add ecommerce/amazon-seller --agent codex --yes
+npx @enlighten-vox/skills add ecommerce/amazon-seller --agent enlighten-ai --enlighten-flavor local --yes
+npx @enlighten-vox/skills add ecommerce/amazon-seller --agent enlighten-ai --scope project --enlighten-flavor local --yes
 ```
 
 必须完成：
@@ -925,12 +1079,12 @@ npx @org/skills add ecommerce/amazon-seller --agent enlighten-ai --scope project
 - Enlighten AI 本地 Skill 列表能看到对应 Skill，runtime 能在可调用 Skill 列表或后续物化检查中识别该 Skill。
 - Codex 路径型安装目录有 `.skills-manager.json`。
 - `skills.lock` 记录 suite、skill、source commit、integrity、Codex install path 或 Enlighten `scope/projectDir/projectId/scopeKind/organizationId/spaceId/installPath/instanceKey`。
-- `--scope project --agent enlighten-ai --yes` 缺少 `--project-dir` 时必须失败，并给出可执行提示。
+- `--scope project --agent enlighten-ai --yes` 缺少 `--project-dir` 时必须默认绑定当前 shell 目录，并在 install plan / lockfile 中记录解析后的 `projectDir`。
 
 查看：
 
 ```bash
-npx @org/skills list
+npx @enlighten-vox/skills list
 ```
 
 必须能列出已安装 Suite/Skill。
@@ -938,7 +1092,7 @@ npx @org/skills list
 检查：
 
 ```bash
-npx @org/skills doctor
+npx @enlighten-vox/skills doctor
 ```
 
 必须能检查 Codex 安装目录、Enlighten AI global/device 与 project/space scoped 安装状态、项目目录 lockfile、manifest、本地文件一致性，以及 `projectDir` 到 `organizationId/spaceId` 的绑定一致性。
@@ -946,12 +1100,28 @@ npx @org/skills doctor
 卸载：
 
 ```bash
-npx @org/skills remove ecommerce/amazon-seller --yes
+npx @enlighten-vox/skills remove ecommerce/amazon-seller --yes
 ```
 
 必须能删除该 Suite 关联且不再被其他 Suite 引用的 Skill。
 
-## 17. 主要风险与规避
+外部 source 验收：
+
+```bash
+npx @enlighten-vox/skills add ./fixtures/external-skills --list
+npx @enlighten-vox/skills add ./fixtures/external-skills --skill sample-skill --agent codex --dry-run
+npx @enlighten-vox/skills use ./fixtures/external-skills --skill sample-skill
+```
+
+必须完成：
+
+- `--list` 只列出合法 `SKILL.md`，跳过缺少 `name/description` 的候选。
+- 默认不列出 `metadata.internal: true` 的 Skill。
+- `--skill` 能精确选择多 Skill source 中的单个 Skill。
+- `use` 不写入正式 install path 和 lockfile。
+- malicious subpath、malicious archive、oversized download 都必须失败。
+
+## 18. 主要风险与规避
 
 ### 风险一：把 Skill 做成 npm package
 
@@ -1010,7 +1180,7 @@ npx @org/skills remove ecommerce/amazon-seller --yes
 - 安装前展示风险。
 - lockfile 记录 source 和 integrity。
 
-## 18. 推荐下一步
+## 19. 推荐下一步
 
 首个标准化 Suite 场景暂定为 Vox 舆情巡检，详见：
 
@@ -1045,8 +1215,8 @@ npx @org/skills remove ecommerce/amazon-seller --yes
 完成后再实现：
 
 ```bash
-npx @org/skills add ecommerce/amazon-seller --dry-run
-npx @org/skills add vox-reputation/vox-keyword-patrol --dry-run
+npx @enlighten-vox/skills add ecommerce/amazon-seller --dry-run
+npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --dry-run
 ```
 
 只要 dry-run 的 resolver/install plan 稳定，后续 Codex / Enlighten AI Adapter 和真实安装就会顺很多。

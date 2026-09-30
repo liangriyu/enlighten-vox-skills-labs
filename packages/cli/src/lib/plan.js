@@ -28,6 +28,7 @@ export function buildInstallPlan(resolved, options = {}, projectScope = null) {
     schema: "install-plan/v1",
     request: resolved.request,
     targetType: resolved.targetType,
+    source: describeSource(resolved.source),
     suite: resolved.suite
       ? {
           id: resolved.suite.id,
@@ -39,6 +40,24 @@ export function buildInstallPlan(resolved, options = {}, projectScope = null) {
     project: projectScope,
     skills: installRecords
   };
+}
+
+function describeSource(source) {
+  if (!source) {
+    return {
+      type: "workspace"
+    };
+  }
+
+  return compactObject({
+    type: source.type,
+    sourceType: source.type,
+    sourceUrl: source.url,
+    ref: source.ref,
+    subpath: source.subpath,
+    commit: source.commit,
+    request: source.request
+  });
 }
 
 function buildSkillInstallRecord(skill, agent, scope, options, projectScope) {
@@ -143,4 +162,8 @@ function assertAgentCompatible(skill, agent) {
       throw new CliUsageError(`Skill ${skill.id} is not compatible with agent ${agent}.`);
     }
   }
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }
