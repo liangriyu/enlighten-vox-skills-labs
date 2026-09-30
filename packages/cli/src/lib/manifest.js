@@ -20,6 +20,7 @@ export function validateRegistryManifests(rootDir) {
   if (!Array.isArray(registry.domains) || registry.domains.length === 0) {
     throw new CliUsageError(`Registry must declare at least one domain: ${registryPath}`);
   }
+  assertUniqueStrings(registry.domains, "registry domain", registryPath);
 
   const counts = {
     domains: 0,
@@ -50,6 +51,8 @@ function validateDomain(rootDir, domainId, counts) {
   if (domain.id !== domainId) {
     throw new CliUsageError(`Domain id mismatch in ${domainPath}: ${domain.id}`);
   }
+  assertNonEmptyString(domain.name, "domain name", domainPath);
+  assertNonEmptyString(domain.description, "domain description", domainPath);
   counts.domains += 1;
 
   const suiteDir = path.join(domainRoot, "suites");
@@ -75,9 +78,12 @@ function validateSuite(rootDir, domainId, suitePath, counts) {
   if (!suite.version) {
     throw new CliUsageError(`Suite manifest is missing version: ${suitePath}`);
   }
+  assertNonEmptyString(suite.name, "suite name", suitePath);
+  assertNonEmptyString(suite.description, "suite description", suitePath);
   if (!Array.isArray(suite.skills) || suite.skills.length === 0) {
     throw new CliUsageError(`Suite manifest must reference at least one skill: ${suitePath}`);
   }
+  assertUniqueStrings(suite.skills, "suite skill reference", suitePath);
 
   for (const skillId of suite.skills) {
     assertTargetId(skillId, "suite skill reference", suitePath);
@@ -109,12 +115,22 @@ function validateSkillManifest(rootDir, domainId, skillPath, counts) {
   if (!skill.version) {
     throw new CliUsageError(`Skill manifest is missing version: ${skillPath}`);
   }
+  assertNonEmptyString(skill.name, "skill name", skillPath);
+  assertNonEmptyString(skill.description, "skill description", skillPath);
   if (!skill.entry) {
     throw new CliUsageError(`Skill manifest is missing entry: ${skillPath}`);
   }
+  validateCompatibility(skill, skillPath);
 
   const skillRoot = path.dirname(skillPath);
-  const resourcePatterns = Array.isArray(skill.resources) ? skill.resources : [skill.entry];
+  if (!Array.isArray(skill.resources) || skill.resources.length === 0) {
+    throw new CliUsageError(`Skill manifest must declare at least one resource: ${skillPath}`);
+  }
+  assertUniqueStrings(skill.resources, "skill resource", skillPath);
+  const resourcePatterns = skill.resources;
+  if (!resourcePatterns.includes(skill.entry)) {
+    throw new CliUsageError(`Skill resources must include entry ${skill.entry}: ${skillPath}`);
+  }
   for (const resourcePattern of resourcePatterns) {
     const resourcePath = resolveDeclaredResource(skillRoot, resourcePattern);
     if (!fs.existsSync(resourcePath)) {
@@ -170,6 +186,42 @@ function assertTargetId(value, label, manifestPath) {
 function assertIdSegment(value, label) {
   if (typeof value !== "string" || !/^[a-z0-9-]+$/.test(value)) {
     throw new CliUsageError(`Invalid ${label}: ${value}`);
+  }
+}
+
+function assertNonEmptyString(value, label, manifestPath) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new CliUsageError(`Manifest is missing ${label}: ${manifestPath}`);
+  }
+}
+
+function assertUniqueStrings(values, label, manifestPath) {
+  const seen = new Set();
+  for (const value of values) {
+    if (typeof value !== "string" || !value.trim()) {
+      throw new CliUsageError(`Invalid ${label} in ${manifestPath}: ${value}`);
+    }
+    if (seen.has(value)) {
+      throw new CliUsageError(`Duplicate ${label} in ${manifestPath}: ${value}`);
+    }
+    seen.add(value);
+  }
+}
+
+function validateCompatibility(skill, skillPath) {
+  const agents = skill.compatibility?.agents;
+  if (agents === undefined) {
+    return;
+  }
+  if (!Array.isArray(agents) || agents.length === 0) {
+    throw new CliUsageError(`Skill compatibility.agents must be a non-empty list: ${skillPath}`);
+  }
+  assertUniqueStrings(agents, "compatible agent", skillPath);
+
+  for (const agent of agents) {
+    if (!["codex", "enlighten-ai"].includes(agent)) {
+      throw new CliUsageError(`Unsupported compatible agent in ${skillPath}: ${agent}`);
+    }
   }
 }
 

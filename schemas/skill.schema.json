@@ -3,7 +3,7 @@
   "$id": "https://example.local/schemas/skill.schema.json",
   "title": "Skill manifest",
   "type": "object",
-  "required": ["schema", "id", "version", "entry"],
+  "required": ["schema", "id", "version", "name", "description", "entry", "resources"],
   "properties": {
     "schema": {
       "const": "skill/v1"
@@ -15,8 +15,37 @@
     "version": {
       "type": "string"
     },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
     "entry": {
       "type": "string"
+    },
+    "compatibility": {
+      "type": "object",
+      "properties": {
+        "agents": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": ["codex", "enlighten-ai"]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     }
   }
 }

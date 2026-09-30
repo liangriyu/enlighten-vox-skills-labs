@@ -2,6 +2,7 @@ schema: skill/v1
 id: vox-reputation/vox-keyword-patrol
 version: 0.1.0
 name: Vox Keyword Patrol
+description: Run keyword reputation patrol workflows with rule filtering, evidence export, and Feishu writeback checks.
 entry: SKILL.md
 compatibility:
   agents:

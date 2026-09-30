@@ -2,6 +2,7 @@ schema: skill/v1
 id: vox-reputation/vox-patrol-env-init
 version: 0.1.0
 name: Vox Patrol Environment Init
+description: Verify local dependencies and generate environment diagnostics for Vox reputation patrol workflows.
 entry: SKILL.md
 compatibility:
   agents:

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/registry.schema.json",
+  "title": "Skill registry manifest",
+  "type": "object",
+  "required": ["schema", "domains"],
+  "properties": {
+    "schema": {
+      "const": "registry/v1"
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9-]+$"
+      },
+      "uniqueItems": true
+    }
+  }
+}

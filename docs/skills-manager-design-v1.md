@@ -373,57 +373,77 @@ CLI 必须限制安装范围，只复制 manifest 声明的 resource，避免把
 
 示例：
 
-```yaml
-lockfileVersion: 1
-generatedBy: "@enlighten-vox/skills@0.1.1"
-
-installed:
-  "skill:ecommerce/competitor-analysis":
-    type: skill
-    version: 1.0.0
-    domain: ecommerce
-    source:
-      type: git
-      repo: https://github.com/enlighten-vox/skills.git
-      sourceUrl: https://github.com/enlighten-vox/skills.git
-      sourceType: github
-      ref: main
-      commit: 8f29a71
-      path: domains/ecommerce/skills/competitor-analysis
-      skillPath: domains/ecommerce/skills/competitor-analysis/SKILL.md
-    integrity: sha256-xxx
-    agents:
-      codex:
-        installPath: ~/.codex/skills/competitor-analysis
-      enlighten-ai:
-        global:
-          scope: global
-          scopeKind: device
-          installPath: "<enlighten-user-data>/codex-home/skills/device/competitor-analysis"
-          instanceKey: "device:competitor-analysis"
-        project:
-          scope: project
-          projectDir: "/Users/example/workspace/acme-project"
-          projectId: "project-sha256-12chars"
-          scopeKind: space
-          organizationId: "<org-id>"
-          spaceId: "<space-id>"
-          installPath: "<enlighten-user-data>/codex-home/skills/by-space/organizations/<org-id>/spaces/<space-id>/competitor-analysis"
-          instanceKey: "space:<org-id>:<space-id>:competitor-analysis"
-    requestedBy:
-      - ecommerce/amazon-seller
-
-  "suite:ecommerce/amazon-seller":
-    type: suite
-    version: 1.0.0
-    source:
-      type: git
-      repo: https://github.com/enlighten-vox/skills.git
-      sourceUrl: https://github.com/enlighten-vox/skills.git
-      sourceType: github
-      ref: main
-      commit: 8f29a71
-      path: domains/ecommerce/suites/amazon-seller.yaml
+```json
+{
+  "lockfileVersion": 1,
+  "generatedBy": "@enlighten-vox/skills@0.1.1",
+  "installed": {
+    "skill:ecommerce/competitor-analysis": {
+      "type": "skill",
+      "version": "1.0.0",
+      "domain": "ecommerce",
+      "source": {
+        "type": "git",
+        "sourceUrl": "https://github.com/enlighten-vox/skills.git",
+        "sourceType": "github",
+        "ref": "main",
+        "commit": "8f29a71",
+        "skillPath": "domains/ecommerce/skills/competitor-analysis"
+      },
+      "integrity": "sha256-xxx",
+      "agents": {
+        "codex": {
+          "global": {
+            "scope": "global",
+            "installPath": "~/.codex/skills/competitor-analysis",
+            "requestedBy": ["suite:ecommerce/amazon-seller"]
+          }
+        },
+        "enlighten-ai": {
+          "global": {
+            "scope": "global",
+            "scopeKind": "device",
+            "installPath": "<enlighten-user-data>/codex-home/skills/device/competitor-analysis",
+            "instanceKey": "device:competitor-analysis",
+            "requestedBy": ["suite:ecommerce/amazon-seller"]
+          },
+          "project": {
+            "scope": "project",
+            "projectDir": "/Users/example/workspace/acme-project",
+            "projectId": "project-sha256-12chars",
+            "scopeKind": "space",
+            "organizationId": "org-example",
+            "spaceId": "space-example",
+            "installPath": "<enlighten-user-data>/codex-home/skills/by-space/organizations/org-example/spaces/space-example/competitor-analysis",
+            "instanceKey": "space:org-example:space-example:competitor-analysis",
+            "requestedBy": ["suite:ecommerce/amazon-seller"]
+          }
+        }
+      },
+      "requestedBy": ["suite:ecommerce/amazon-seller"]
+    },
+    "suite:ecommerce/amazon-seller": {
+      "type": "suite",
+      "version": "1.0.0",
+      "source": {
+        "type": "git",
+        "sourceUrl": "https://github.com/enlighten-vox/skills.git",
+        "sourceType": "github",
+        "ref": "main",
+        "commit": "8f29a71",
+        "skillPath": "domains/ecommerce/suites/amazon-seller.yaml"
+      },
+      "skills": ["ecommerce/competitor-analysis"],
+      "agents": {
+        "codex": {
+          "global": {
+            "scope": "global"
+          }
+        }
+      }
+    }
+  }
+}
 ```
 
 关键字段：

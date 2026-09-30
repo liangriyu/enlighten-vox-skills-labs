@@ -3,7 +3,7 @@
   "$id": "https://example.local/schemas/suite.schema.json",
   "title": "Suite manifest",
   "type": "object",
-  "required": ["schema", "id", "version", "skills"],
+  "required": ["schema", "id", "version", "name", "description", "skills"],
   "properties": {
     "schema": {
       "const": "suite/v1"
@@ -15,11 +15,22 @@
     "version": {
       "type": "string"
     },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
     "skills": {
       "type": "array",
+      "minItems": 1,
       "items": {
-        "type": "string"
-      }
+        "type": "string",
+        "pattern": "^[a-z0-9-]+/[a-z0-9-]+$"
+      },
+      "uniqueItems": true
     }
   }
 }

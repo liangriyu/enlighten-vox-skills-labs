@@ -107,9 +107,9 @@ Suite 只引用 Skill，不复制 Skill 目录。这保证了共享 Skill 可以
 
 ## 4. 必须修正的问题
 
-### P0-1：设计文档与当前 schema 仍不一致
+### P0-1：设计文档与当前 schema 仍不一致（已修复）
 
-设计文档中的 manifest 示例包含 `name`、`domain`、`description`、`compatibility`、`capabilities`、`resources` 等字段，但当前 `schemas/skill.schema.json` 和 `schemas/suite.schema.json` 还非常简化。
+当前 schema 已补齐 registry/domain，并将 suite/skill 的 `name`、`description`、`resources`、`compatibility.agents` 等字段纳入 V1 校验；CLI `validate` 也会按同一口径检查当前 registry。
 
 风险：
 
@@ -154,9 +154,9 @@ npm test -- packages/cli/test/project-scope.test.js
 
 并新增缺参真实安装失败用例。
 
-### P0-3：lockfile 格式需要一次性定稿
+### P0-3：lockfile 格式需要一次性定稿（已修复）
 
-设计文档示例使用 YAML 风格，但当前实现写入 JSON `skills.lock`。两者都可以，但必须明确。
+V1 已明确 `skills.lock` 使用 JSON，设计文档示例已同步为 JSON；`.skillsrc.yaml` 仍保留 YAML。
 
 建议：
 
@@ -349,10 +349,10 @@ npm test -- source-parser
 
 | 风险 | 级别 | 影响 | 建议处理 |
 | --- | --- | --- | --- |
-| schema 与设计不一致 | P0 | 安装错误配置仍可能成功 | 先补 schema 与 manifest 校验 |
+| schema 与设计不一致 | P0 | 安装错误配置仍可能成功 | 已补 schema 与 manifest 校验 |
 | Enlighten project 写入占位 org/space | P0 | 污染 userData，runtime 不可见 | 非 dry-run 强制真实 org/space |
 | 外部 source 过早真实安装 | P0 | 安全边界和 update 语义不稳定 | 先 list/dry-run，再 install |
-| lockfile 格式不统一 | P0 | 后续 update/remove 难维护 | V1 固定 JSON lockfile |
+| lockfile 格式不统一 | P0 | 后续 update/remove 难维护 | 已固定 JSON lockfile |
 | validate 硬编码 Vox | P1 | 校验覆盖不足 | 扫描全 registry |
 | Adapter 未抽象 | P1 | Codex/Enlighten 逻辑继续耦合 | 拆 adapter interface |
 | 缺少 runtime 验证 | P1 | 文件安装成功但 Agent 不加载 | doctor 增加 runtime 可见性检查 |

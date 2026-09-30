@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/domain.schema.json",
+  "title": "Skill domain manifest",
+  "type": "object",
+  "required": ["schema", "id", "name", "description"],
+  "properties": {
+    "schema": {
+      "const": "domain/v1"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}
