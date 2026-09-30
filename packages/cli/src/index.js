@@ -331,22 +331,22 @@ export async function run(argv, io = {}) {
 }
 
 function updateOptionsFromExistingRecords(options, records = []) {
-  const firstEnlightenProjectRecord = records.find(
+  const firstEnlightenBindingRecord = records.find(
     (record) =>
       record.agent === "enlighten-ai" &&
-      record.scope === "project" &&
+      (record.scope === "space" || record.scope === "project") &&
       record.organizationId &&
       record.spaceId
   );
 
-  if (!firstEnlightenProjectRecord) {
+  if (!firstEnlightenBindingRecord) {
     return options;
   }
 
   return {
     ...options,
-    organizationId: options.organizationId ?? firstEnlightenProjectRecord.organizationId,
-    spaceId: options.spaceId ?? firstEnlightenProjectRecord.spaceId
+    organizationId: options.organizationId ?? firstEnlightenBindingRecord.organizationId,
+    spaceId: options.spaceId ?? firstEnlightenBindingRecord.spaceId
   };
 }
 
@@ -438,17 +438,23 @@ function helpText() {
 
 Usage:
   skills add <source> --list
-  skills add <source> [--suite <id>|--skill <id>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] --dry-run
-  skills add <domain>/<suite-or-skill> [--registry <path-or-git-source>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run]
-  skills list [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>]
-  skills remove <domain>/<suite-or-skill> [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run] [--yes]
-  skills update [domain/suite-or-skill] [--registry <path-or-git-source>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run] [--yes]
-  skills doctor [--scope project --project-dir <path>]
+  skills add <source> [--suite <id>|--skill <id>] [--agent codex|enlighten-ai] [--scope global|space|project] [--project-dir <path>] --dry-run
+  skills add <domain>/<suite-or-skill> [--registry <path-or-git-source>] [--agent codex|enlighten-ai] [--scope global|space|project] [--project-dir <path>] [--dry-run]
+  skills list [--agent codex|enlighten-ai] [--scope global|space|project] [--project-dir <path>]
+  skills remove <domain>/<suite-or-skill> [--agent codex|enlighten-ai] [--scope global|space|project] [--project-dir <path>] [--dry-run] [--yes]
+  skills update [domain/suite-or-skill] [--registry <path-or-git-source>] [--agent codex|enlighten-ai] [--scope global|space|project] [--project-dir <path>] [--dry-run] [--yes]
+  skills doctor [--agent codex|enlighten-ai] [--scope global|space|project] [--project-dir <path>]
   skills validate [--registry <path-or-git-source>]
 
-Project scope:
+Scopes:
+  codex global: ~/.codex/skills/<skill>
+  codex project: <projectDir>/.codex/skills/<skill>
+  enlighten-ai global: {userData}/codex-home/skills/device/<skill>
+  enlighten-ai space: {userData}/codex-home/skills/by-space/organizations/<org>/spaces/<space>/<skill>
+  enlighten-ai project: <projectDir>/.codex/skills/<skill>
   Read-only project commands default to the current working directory.
   Non-interactive project mutations require --project-dir <path>.
+  Enlighten AI space scope requires --organization-id and --space-id.
 
 Install:
   Use --yes for non-interactive installation.

@@ -1,5 +1,11 @@
 # Skills Manager V1 详细设计方案
 
+> 实现勘误（2026-09-30）：Enlighten AI scope 语义已按当前 CLI 实现收敛为三类：
+> `global/device -> {userData}/codex-home/skills/device/<skill>`，
+> `space -> {userData}/codex-home/skills/by-space/organizations/<org-id>/spaces/<space-id>/<skill>`，
+> `project -> <projectDir>/.codex/skills/<skill>`。
+> 本文后续章节中仍把 `--scope project` 描述为 Enlighten by-space capability store 的段落，是历史设计语义，应以 `docs/skills-manager-design-review.md` 和当前 CLI help 为准。
+
 ## 1. 背景与目标
 
 当前目标不是简单地把一批 `SKILL.md` 文件提交到 Git 仓库，而是建设一套可版本化、可组合、可发现、可验证、可按 Suite 安装的 Skills 分发与管理体系。

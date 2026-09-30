@@ -11,8 +11,12 @@ export function buildInstallPlan(resolved, options = {}, projectScope = null) {
     throw new CliUsageError(`Unsupported agent for V1: ${agent}`);
   }
 
-  if (!["global", "project"].includes(scope)) {
+  if (!["global", "project", "space"].includes(scope)) {
     throw new CliUsageError(`Unsupported scope: ${scope}`);
+  }
+
+  if (agent === "codex" && scope === "space") {
+    throw new CliUsageError("Codex does not support --scope space.");
   }
 
   if (scope === "project" && !projectScope) {
@@ -102,7 +106,23 @@ function buildSkillInstallRecord(skill, agent, scope, options, projectScope) {
     };
   }
 
-  const { organizationId, spaceId } = resolveEnlightenProjectBinding(options);
+  if (scope === "project") {
+    return {
+      id: skill.id,
+      version: skill.version,
+      directoryName,
+      entry: skill.entry,
+      scope,
+      scopeKind: "project",
+      projectDir: projectScope.projectDir,
+      projectId: projectScope.projectId,
+      installPath: path.join(projectScope.projectDir, ".codex", "skills", directoryName),
+      instanceKey: `project:${projectScope.projectId}:${directoryName}`,
+      marker: ".enlighten-install.json"
+    };
+  }
+
+  const { organizationId, spaceId } = resolveEnlightenSpaceBinding(options);
   return {
     id: skill.id,
     version: skill.version,
@@ -110,8 +130,6 @@ function buildSkillInstallRecord(skill, agent, scope, options, projectScope) {
     entry: skill.entry,
     scope,
     scopeKind: "space",
-    projectDir: projectScope.projectDir,
-    projectId: projectScope.projectId,
     organizationId,
     spaceId,
     installPath: path.join(
@@ -130,7 +148,7 @@ function buildSkillInstallRecord(skill, agent, scope, options, projectScope) {
   };
 }
 
-function resolveEnlightenProjectBinding(options = {}) {
+export function resolveEnlightenSpaceBinding(options = {}) {
   const organizationId = options.organizationId ?? process.env.ENLIGHTEN_ORG_ID;
   const spaceId = options.spaceId ?? process.env.ENLIGHTEN_SPACE_ID;
 
@@ -146,7 +164,7 @@ function resolveEnlightenProjectBinding(options = {}) {
   }
 
   throw new CliUsageError(
-    "Enlighten project installs require --organization-id and --space-id, or ENLIGHTEN_ORG_ID and ENLIGHTEN_SPACE_ID."
+    "Enlighten space scope requires --organization-id and --space-id, or ENLIGHTEN_ORG_ID and ENLIGHTEN_SPACE_ID."
   );
 }
 

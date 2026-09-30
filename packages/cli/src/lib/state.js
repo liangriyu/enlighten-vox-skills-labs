@@ -13,8 +13,10 @@ import {
 
 export async function loadInstallState(options = {}, projectScope = null) {
   const scope = options.scope ?? "global";
+  const agent = options.agent ?? "codex";
   const lockfilePath = resolveLockfilePath(
     {
+      agent,
       scope,
       project: projectScope
     },
@@ -27,7 +29,7 @@ export async function loadInstallState(options = {}, projectScope = null) {
 
   return {
     schema: "install-state/v1",
-    agent: options.agent ?? "codex",
+    agent,
     scope,
     project: projectScope,
     lockfilePath,
@@ -244,8 +246,8 @@ export async function runStaticDoctor(state, options = {}) {
         message: targetCheck.message ?? "Install target marker matches lockfile."
       });
 
-      if (agentRecord.agent === "enlighten-ai" && agentRecord.scope === "project") {
-        checks.push(checkEnlightenProjectBinding(record));
+      if (agentRecord.agent === "enlighten-ai" && agentRecord.scope === "space") {
+        checks.push(checkEnlightenSpaceBinding(record));
       }
     }
   }
@@ -543,7 +545,7 @@ async function checkProjectConfig(project) {
   };
 }
 
-function checkEnlightenProjectBinding(record) {
+function checkEnlightenSpaceBinding(record) {
   const placeholderValues = new Set(["<org-id>", "<space-id>"]);
   const invalid = [record.organizationId, record.spaceId].filter((value) =>
     placeholderValues.has(value)
@@ -554,8 +556,8 @@ function checkEnlightenProjectBinding(record) {
     path: record.installPath,
     message:
       invalid.length === 0
-        ? "Enlighten project binding has concrete organizationId and spaceId."
-        : "Enlighten project install uses placeholder organizationId/spaceId."
+        ? "Enlighten space binding has concrete organizationId and spaceId."
+        : "Enlighten space install uses placeholder organizationId/spaceId."
   };
 }
 

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { CliUsageError } from "./errors.js";
 import { calculateSkillIntegrity } from "./installer.js";
+import { resolveEnlightenSpaceBinding } from "./plan.js";
 
 export async function writeInstallState(resolved, plan, options = {}) {
   const lockfilePath = resolveLockfilePath(plan, options);
@@ -163,11 +164,18 @@ function renderProjectConfig(projectScope, plan, options, target) {
     lines.push(
       "enlighten:",
       `  flavor: ${options.enlightenFlavor ?? "local"}`,
-      `  scopeKind: ${firstSkill.scopeKind}`,
-      `  organizationId: ${quote(firstSkill.organizationId)}`,
-      `  spaceId: ${quote(firstSkill.spaceId)}`,
-      ""
+      `  scopeKind: ${firstSkill.scopeKind}`
     );
+
+    if (firstSkill.organizationId !== undefined) {
+      lines.push(`  organizationId: ${quote(firstSkill.organizationId)}`);
+    }
+
+    if (firstSkill.spaceId !== undefined) {
+      lines.push(`  spaceId: ${quote(firstSkill.spaceId)}`);
+    }
+
+    lines.push("");
   }
 
   lines.push("suites:", `  - "${target}"`, "");
@@ -185,6 +193,20 @@ export function resolveLockfilePath(plan, options = {}) {
   const stateDir = options.stateDir
     ? path.resolve(options.stateDir)
     : path.join(os.homedir(), ".skills-manager");
+
+  const agent = plan.agent ?? options.agent ?? "codex";
+  if (agent === "enlighten-ai" && plan.scope === "space") {
+    const { organizationId, spaceId } = resolveEnlightenSpaceBinding(options);
+    return path.join(
+      stateDir,
+      "enlighten-ai",
+      "spaces",
+      safeStatePathSegment(organizationId),
+      safeStatePathSegment(spaceId),
+      "skills.lock"
+    );
+  }
+
   return path.join(stateDir, "skills.lock");
 }
 
@@ -233,6 +255,10 @@ async function atomicWrite(filePath, content) {
 
 function quote(value) {
   return JSON.stringify(String(value));
+}
+
+function safeStatePathSegment(value) {
+  return encodeURIComponent(String(value)).replace(/%/g, "_");
 }
 
 function mergeUnique(existing, value) {

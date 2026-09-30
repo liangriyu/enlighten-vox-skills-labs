@@ -36,7 +36,7 @@
 - Suite 组合关系。
 - Skill manifest 与 resource 安装边界。
 - Codex global/project 安装。
-- Enlighten AI device/space scoped 安装。
+- Enlighten AI global/device、space、project-local 安装。
 - read-only project scope 可以默认绑定当前 shell 目录；真实非交互 project mutation 要求显式 `projectDir`。
 - `.skillsrc.yaml` 与 `skills.lock` 的项目落点。
 - Vox 舆情巡检作为首个标准化 Suite。
@@ -48,11 +48,11 @@
 - Codex 与 Enlighten AI 的基础 install plan。
 - read-only project scope 缺省时解析当前 shell 目录；非交互 install/update/remove 需要 `--project-dir`。
 - manager marker 防止覆盖非托管目录。
-- 基础 `skills.lock` / `.skillsrc.yaml` 写入。
+- 基础 `skills.lock` / `.skillsrc.yaml` 写入；其中 `enlighten-ai + space` 使用 manager state 下的 space lockfile，`enlighten-ai + project` 使用本地工程 lockfile。
 - `list` 读取 lockfile 并输出已安装 Suite / Skill。
 - 基础 `remove` 支持 manager-owned install target 删除与 Suite 引用清理。
 - 基础 `update` 支持 workspace source 的顶层 Suite / 直接安装 Skill 重新安装与 lockfile 刷新。
-- 静态 `doctor` 支持 project dir、project config、lockfile、install marker 和 Enlighten 占位 org/space 检查。
+- 静态 `doctor` 支持 project dir、project config、lockfile、install marker 和 Enlighten space 占位 org/space 检查。
 - 外部 source parser、只读 `add <source> --list` 和 direct source dry-run；真实 direct source install 暂时拦截。
 - Vox Suite 的基础 manifest 与安装验证测试。
 
@@ -80,14 +80,15 @@ Suite 只引用 Skill，不复制 Skill 目录。这保证了共享 Skill 可以
 
 ### 3.4 Enlighten AI 边界处理正确
 
-方案把 `projectDir` 与 Enlighten AI 的实际 `installPath` 分开：
+方案已经把 Enlighten AI 的三个 CLI scope 拆开：
 
-- `projectDir` 保存 `.skillsrc.yaml`、`skills.lock` 和业务输出。
-- Skill 文件安装到 Enlighten Electron `userData` 下的 scoped capability store。
-- 不写入 per-session runtime home。
-- 不把 `~/.codex/skills` 当成 Enlighten AI 安装目标。
+- `global/device`：安装到 Enlighten Electron `userData` 下的 device capability store。
+- `space`：安装到 Enlighten Electron `userData` 下的 by-space capability store，必须绑定真实 org/space。
+- `project`：安装到用户显式选择的本地工程 `<projectDir>/.codex/skills/<skill>`，并写入 `.enlighten-install.json` marker。
 
-这个边界符合 Enlighten 本地运行时的真实目录布局，后续不会和 session runtime materialization 混淆。
+这个边界符合当前讨论后的目录规则：space 是空间隔离，project 是用户本地自定义工程目录。它仍然不写入 per-session runtime home，也不把 `~/.codex/skills` 当成 Enlighten AI 的 device/space 安装目标。
+
+需要注意：`enlighten-ai + project` 目前只是 CLI 落盘和 marker 语义成立，Electron runtime 是否会读取 `<projectDir>/.codex/skills` 仍属于后续 runtime 可见性验证债。
 
 ### 3.5 开源方案吸收方式比较克制
 
@@ -128,19 +129,19 @@ npm test
 npm run validate:manifests
 ```
 
-### P0-2：真实 install 不应允许 Enlighten project 使用占位 org/space（已修复）
+### P0-2：真实 space install 不应允许占位 org/space（已修复）
 
-当前实现已调整为：dry-run 可以展示 `<org-id>` / `<space-id>` 占位符，真实安装必须提供 `--organization-id` / `--space-id` 或 `ENLIGHTEN_ORG_ID` / `ENLIGHTEN_SPACE_ID`。
+当前实现已调整为：`enlighten-ai + space` dry-run 可以展示 `<org-id>` / `<space-id>` 占位符，真实安装必须提供 `--organization-id` / `--space-id` 或 `ENLIGHTEN_ORG_ID` / `ENLIGHTEN_SPACE_ID`。
 
 风险：
 
 - 真实 Skill 被安装到无效 scoped path。
-- `.skillsrc.yaml` / `skills.lock` 记录无效组织与空间。
+- space lockfile 记录无效组织与空间。
 - 后续 runtime 查不到或误判已安装。
 
 建议：
 
-- `--agent enlighten-ai --scope project --dry-run` 可以保留占位展示。
+- `--agent enlighten-ai --scope space --dry-run` 可以保留占位展示。
 - 非 dry-run 安装时，必须要求显式 `--organization-id` / `--space-id` 或可验证的环境变量。
 - 如果仍为 `<org-id>` / `<space-id>`，直接失败。
 
@@ -212,23 +213,25 @@ External Source
 
 不要让外部 repo 直接绕过 Suite 关系、capabilities、Agent compatibility、project binding 和 lockfile。
 
-### 5.2 Codex 可以走普通文件型 Adapter，Enlighten AI 不可以
+### 5.2 Agent Adapter 需要按 scope 分流
 
-Codex 的 global/project path 可以看作普通文件型 adapter：
+Codex 仍保持普通文件型 adapter：
 
 ```text
 global:  ~/.codex/skills/<skill>
 project: <projectDir>/.codex/skills/<skill>
+space:   unsupported
 ```
 
-Enlighten AI 的路径是 scoped capability store：
+Enlighten AI 现在按 scope 分成三类目标：
 
 ```text
-device: <userData>/codex-home/skills/device/<skill>
-space:  <userData>/codex-home/skills/by-space/organizations/<org-id>/spaces/<space-id>/<skill>
+global/device: <userData>/codex-home/skills/device/<skill>
+space:         <userData>/codex-home/skills/by-space/organizations/<org-id>/spaces/<space-id>/<skill>
+project:       <projectDir>/.codex/skills/<skill>
 ```
 
-所以 canonical symlink/copy 方案只能先服务普通文件型 Agent，不应应用到 Enlighten AI。
+因此 canonical symlink/copy 方案只能直接服务普通文件型 scope：Codex global/project，以及 Enlighten AI project-local。Enlighten AI 的 device/space 仍然是 Electron userData 下的 scoped capability store，不能套用普通文件型安装假设。
 
 ### 5.3 M5 外部 source 可以设计，不能抢 M3/M4 的优先级
 
@@ -245,7 +248,7 @@ space:  <userData>/codex-home/skills/by-space/organizations/<org-id>/spaces/<spa
 - 统一 `skills.lock` 格式说明为 JSON。
 - 在设计文档中标注哪些命令是已实现，哪些是规划。
 - 把 schema required 字段与当前 manifest 实际字段对齐。
-- 给 Enlighten AI project 真实安装增加 org/space 必填规则。
+- 给 Enlighten AI space 真实安装增加 org/space 必填规则。
 
 通过标准：
 
@@ -348,7 +351,7 @@ npm test -- source-parser
 | 风险 | 级别 | 影响 | 建议处理 |
 | --- | --- | --- | --- |
 | schema 与设计不一致 | P0 | 安装错误配置仍可能成功 | 已补 schema 与 manifest 校验 |
-| Enlighten project 写入占位 org/space | P0 | 污染 userData，runtime 不可见 | 非 dry-run 强制真实 org/space |
+| Enlighten space 写入占位 org/space | P0 | 污染 userData，runtime 不可见 | 非 dry-run 强制真实 org/space |
 | 外部 source 过早真实安装 | P0 | 安全边界和 update 语义不稳定 | direct source 真实安装已拦截，只保留 list/dry-run |
 | lockfile 格式不统一 | P0 | 后续 update/remove 难维护 | 已固定 JSON lockfile |
 | validate 硬编码 Vox | P1 | 校验覆盖不足 | 扫描全 registry |
@@ -361,7 +364,7 @@ npm test -- source-parser
 建议在评审会上确认以下决策：
 
 1. `skills.lock` V1 是否统一为 JSON。
-2. `--agent enlighten-ai --scope project` 真实安装是否强制 org/space。
+2. `--agent enlighten-ai --scope space` 真实安装是否强制 org/space。
 3. 外部 source 能力是否拆成 M5，不阻塞当前 Vox Suite MVP。
 4. Codex 是否先保持直接 `.codex/skills`，canonical symlink 作为后续多 Agent 能力。
 5. `validate` 是否作为 CI 门禁命令，而不是临时 smoke 命令。
@@ -384,5 +387,5 @@ P0 文档/schema/真实安装边界
 
 - P0 项有明确 owner 和验收命令。
 - `skills.lock` 格式定稿。
-- Enlighten AI project 安装不再允许占位 org/space 真实落盘。
+- Enlighten AI space 安装不再允许占位 org/space 真实落盘。
 - 外部 source 先以只读 discovery 进入，不直接进入真实 install。

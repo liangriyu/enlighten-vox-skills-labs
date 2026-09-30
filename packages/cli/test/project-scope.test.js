@@ -97,8 +97,32 @@ test("managed targets can resolve from explicit registry outside cwd", async () 
   assert.equal(plan.skills.length, 2);
 });
 
-test("enlighten project dry-run binds selected projectDir to scoped install path", async () => {
-  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-"));
+test("codex rejects space scope", async () => {
+  const stdout = createWriter();
+  const stderr = createWriter();
+  const exitCode = await run(
+    [
+      "add",
+      "vox-reputation/vox-keyword-patrol",
+      "--agent",
+      "codex",
+      "--scope",
+      "space",
+      "--dry-run"
+    ],
+    {
+      cwd: repoRoot,
+      stdin: { isTTY: false },
+      stdout,
+      stderr
+    }
+  );
+
+  assert.equal(exitCode, 2);
+  assert.match(stderr.output, /Codex does not support --scope space/);
+});
+
+test("enlighten space dry-run binds org and space to scoped install path", async () => {
   const stdout = createWriter();
   const stderr = createWriter();
 
@@ -109,9 +133,7 @@ test("enlighten project dry-run binds selected projectDir to scoped install path
       "--agent",
       "enlighten-ai",
       "--scope",
-      "project",
-      "--project-dir",
-      projectDir,
+      "space",
       "--enlighten-flavor",
       "local",
       "--dry-run"
@@ -126,17 +148,16 @@ test("enlighten project dry-run binds selected projectDir to scoped install path
 
   assert.equal(exitCode, 0, stderr.output);
   const plan = JSON.parse(stdout.output);
-  assert.equal(plan.scope, "project");
-  assert.equal(plan.project.projectDir, fsSync.realpathSync(projectDir));
+  assert.equal(plan.scope, "space");
+  assert.equal(plan.project, null);
   assert.equal(plan.skills.length, 2);
   assert.match(plan.skills[0].installPath, /codex-home\/skills\/by-space\/organizations\/<org-id>\/spaces\/<space-id>/);
-  assert.equal(plan.skills[0].projectDir, fsSync.realpathSync(projectDir));
   assert.match(plan.skills[0].instanceKey, /^space:<org-id>:<space-id>:/);
 });
 
-test("enlighten project install writes skills, marker, project config, and lockfile", async () => {
-  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-install-"));
+test("enlighten space install writes skills, marker, and space lockfile", async () => {
   const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-"));
+  const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-state-space-"));
   const stdout = createWriter();
   const stderr = createWriter();
 
@@ -147,11 +168,11 @@ test("enlighten project install writes skills, marker, project config, and lockf
       "--agent",
       "enlighten-ai",
       "--scope",
-      "project",
-      "--project-dir",
-      projectDir,
+      "space",
       "--enlighten-user-data",
       userData,
+      "--state-dir",
+      stateDir,
       "--organization-id",
       "org-test",
       "--space-id",
@@ -184,13 +205,17 @@ test("enlighten project install writes skills, marker, project config, and lockf
   const marker = JSON.parse(
     await fs.readFile(path.join(skillRoot, ".enlighten-install.json"), "utf8")
   );
-  const lockfile = JSON.parse(await fs.readFile(path.join(projectDir, "skills.lock"), "utf8"));
-  const config = await fs.readFile(path.join(projectDir, ".skillsrc.yaml"), "utf8");
+  const lockfile = JSON.parse(
+    await fs.readFile(
+      path.join(stateDir, "enlighten-ai", "spaces", "org-test", "space-test", "skills.lock"),
+      "utf8"
+    )
+  );
 
   assert.equal(marker.scope_kind, "space");
   assert.equal(marker.organization_id, "org-test");
   assert.equal(marker.space_id, "space-test");
-  assert.equal(marker.project_dir, fsSync.realpathSync(projectDir));
+  assert.equal(marker.project_dir, undefined);
   assert.equal(
     await fs.readFile(path.join(skillRoot, "SKILL.md"), "utf8"),
     await fs.readFile(
@@ -201,17 +226,14 @@ test("enlighten project install writes skills, marker, project config, and lockf
       "utf8"
     )
   );
-  assert.match(config, /managedBy: "@enlighten-vox\/skills"/);
-  assert.match(config, /vox-reputation\/vox-keyword-patrol/);
   assert.equal(
-    lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].project
+    lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].space
       .instanceKey,
     "space:org-test:space-test:vox-keyword-patrol"
   );
 });
 
-test("enlighten project install rejects placeholder organization and space", async () => {
-  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-missing-space-"));
+test("enlighten space install rejects placeholder organization and space", async () => {
   const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-missing-space-"));
   const stdout = createWriter();
   const stderr = createWriter();
@@ -223,9 +245,7 @@ test("enlighten project install rejects placeholder organization and space", asy
       "--agent",
       "enlighten-ai",
       "--scope",
-      "project",
-      "--project-dir",
-      projectDir,
+      "space",
       "--enlighten-user-data",
       userData,
       "--yes"
@@ -239,7 +259,7 @@ test("enlighten project install rejects placeholder organization and space", asy
   );
 
   assert.equal(exitCode, 2);
-  assert.match(stderr.output, /Enlighten project installs require --organization-id and --space-id/);
+  assert.match(stderr.output, /Enlighten space scope requires --organization-id and --space-id/);
   assert.equal(
     fsSync.existsSync(path.join(userData, "codex-home", "skills", "by-space")),
     false
@@ -247,7 +267,6 @@ test("enlighten project install rejects placeholder organization and space", asy
 });
 
 test("unmanaged install target is protected without force", async () => {
-  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-protected-"));
   const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-protected-"));
   const target = path.join(
     userData,
@@ -272,9 +291,7 @@ test("unmanaged install target is protected without force", async () => {
       "--agent",
       "enlighten-ai",
       "--scope",
-      "project",
-      "--project-dir",
-      projectDir,
+      "space",
       "--enlighten-user-data",
       userData,
       "--organization-id",
@@ -294,6 +311,57 @@ test("unmanaged install target is protected without force", async () => {
   assert.equal(exitCode, 2);
   assert.match(stderr.output, /Refusing to overwrite unmanaged install target/);
   assert.equal(await fs.readFile(path.join(target, "user-file.txt"), "utf8"), "keep me\n");
+});
+
+test("enlighten project install writes project-local codex skill and marker", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-project-install-"));
+  const stdout = createWriter();
+  const stderr = createWriter();
+
+  const exitCode = await run(
+    [
+      "add",
+      "vox-reputation/vox-keyword-patrol",
+      "--agent",
+      "enlighten-ai",
+      "--scope",
+      "project",
+      "--project-dir",
+      projectDir,
+      "--yes"
+    ],
+    {
+      cwd: repoRoot,
+      stdin: { isTTY: false },
+      stdout,
+      stderr
+    }
+  );
+
+  assert.equal(exitCode, 0, stderr.output);
+  const realProjectDir = fsSync.realpathSync(projectDir);
+  const skillRoot = path.join(realProjectDir, ".codex", "skills", "vox-keyword-patrol");
+  const marker = JSON.parse(
+    await fs.readFile(path.join(skillRoot, ".enlighten-install.json"), "utf8")
+  );
+  const lockfile = JSON.parse(await fs.readFile(path.join(realProjectDir, "skills.lock"), "utf8"));
+  const config = await fs.readFile(path.join(realProjectDir, ".skillsrc.yaml"), "utf8");
+
+  assert.equal(marker.agent, "enlighten-ai");
+  assert.equal(marker.scope, "project");
+  assert.equal(marker.scope_kind, "project");
+  assert.equal(marker.project_dir, realProjectDir);
+  assert.match(marker.instance_key, /^project:project-[a-f0-9]{12}:vox-keyword-patrol$/);
+  assert.match(config, /managedBy: "@enlighten-vox\/skills"/);
+  assert.match(config, /scopeKind: project/);
+  assert.doesNotMatch(config, /organizationId/);
+  assert.doesNotMatch(config, /spaceId/);
+  assert.doesNotMatch(config, /undefined/);
+  assert.equal(
+    lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].project
+      .installPath,
+    skillRoot
+  );
 });
 
 test("codex project install writes the local skill and manager marker", async () => {
@@ -590,6 +658,7 @@ test("remove suite keeps directly requested shared skills", async () => {
 test("remove suite only removes the selected agent and scope", async () => {
   const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-cross-scope-"));
   const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-cross-scope-"));
+  const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-state-cross-scope-"));
   const codexStdout = createWriter();
   const codexStderr = createWriter();
   const enlightenStdout = createWriter();
@@ -629,11 +698,11 @@ test("remove suite only removes the selected agent and scope", async () => {
         "--agent",
         "enlighten-ai",
         "--scope",
-        "project",
-        "--project-dir",
-        projectDir,
+        "space",
         "--enlighten-user-data",
         userData,
+        "--state-dir",
+        stateDir,
         "--organization-id",
         "org-test",
         "--space-id",
@@ -677,6 +746,12 @@ test("remove suite only removes the selected agent and scope", async () => {
 
   const result = JSON.parse(removeStdout.output);
   const lockfile = JSON.parse(await fs.readFile(path.join(projectDir, "skills.lock"), "utf8"));
+  const spaceLockfile = JSON.parse(
+    await fs.readFile(
+      path.join(stateDir, "enlighten-ai", "spaces", "org-test", "space-test", "skills.lock"),
+      "utf8"
+    )
+  );
   assert.equal(result.removed.length, 2);
   assert.equal(
     fsSync.existsSync(path.join(projectDir, ".codex", "skills", "vox-keyword-patrol")),
@@ -699,11 +774,11 @@ test("remove suite only removes the selected agent and scope", async () => {
     true
   );
   assert.equal(
-    lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents.codex,
-    undefined
+    Object.keys(lockfile.installed).length,
+    0
   );
   assert.equal(
-    Boolean(lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].project),
+    Boolean(spaceLockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].space),
     true
   );
 });
@@ -797,9 +872,9 @@ test("update refreshes a workspace suite install from source", async () => {
   );
 });
 
-test("update reuses enlighten project binding from lockfile", async () => {
-  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-update-enlighten-"));
+test("update reuses enlighten space install path from lockfile", async () => {
   const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-update-"));
+  const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-state-update-enlighten-"));
   const installStdout = createWriter();
   const installStderr = createWriter();
   const updateStdout = createWriter();
@@ -813,11 +888,11 @@ test("update reuses enlighten project binding from lockfile", async () => {
         "--agent",
         "enlighten-ai",
         "--scope",
-        "project",
-        "--project-dir",
-        projectDir,
+        "space",
         "--enlighten-user-data",
         userData,
+        "--state-dir",
+        stateDir,
         "--organization-id",
         "org-test",
         "--space-id",
@@ -857,9 +932,13 @@ test("update reuses enlighten project binding from lockfile", async () => {
         "--agent",
         "enlighten-ai",
         "--scope",
-        "project",
-        "--project-dir",
-        projectDir,
+        "space",
+        "--state-dir",
+        stateDir,
+        "--organization-id",
+        "org-test",
+        "--space-id",
+        "space-test",
         "--yes"
       ],
       {
