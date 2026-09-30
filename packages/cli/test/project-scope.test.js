@@ -213,6 +213,12 @@ test("enlighten space install writes skills, marker, and space lockfile", async 
   );
 
   assert.equal(marker.scope_kind, "space");
+  assert.equal(marker.installed_by, "enlighten");
+  assert.equal(marker.source, "cloud-owned");
+  assert.equal(marker.source_id, "vox-reputation/vox-keyword-patrol");
+  assert.equal(marker.manager_source, "workspace");
+  assert.equal(marker.enabled, true);
+  assert.match(marker.installed_at, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(marker.organization_id, "org-test");
   assert.equal(marker.space_id, "space-test");
   assert.equal(marker.project_dir, undefined);
@@ -230,6 +236,62 @@ test("enlighten space install writes skills, marker, and space lockfile", async 
     lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].space
       .instanceKey,
     "space:org-test:space-test:vox-keyword-patrol"
+  );
+});
+
+test("enlighten global install writes sidecar-compatible device marker", async () => {
+  const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-global-"));
+  const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-state-global-"));
+  const stdout = createWriter();
+  const stderr = createWriter();
+
+  const exitCode = await run(
+    [
+      "add",
+      "vox-reputation/vox-keyword-patrol",
+      "--agent",
+      "enlighten-ai",
+      "--scope",
+      "global",
+      "--enlighten-user-data",
+      userData,
+      "--state-dir",
+      stateDir,
+      "--yes"
+    ],
+    {
+      cwd: repoRoot,
+      stdin: { isTTY: false },
+      stdout,
+      stderr
+    }
+  );
+
+  assert.equal(exitCode, 0, stderr.output);
+  const skillRoot = path.join(
+    userData,
+    "codex-home",
+    "skills",
+    "device",
+    "vox-keyword-patrol"
+  );
+  const marker = JSON.parse(
+    await fs.readFile(path.join(skillRoot, ".enlighten-install.json"), "utf8")
+  );
+  const lockfile = JSON.parse(await fs.readFile(path.join(stateDir, "skills.lock"), "utf8"));
+
+  assert.equal(marker.scope_kind, "device");
+  assert.equal(marker.installed_by, "enlighten");
+  assert.equal(marker.source, "local-created");
+  assert.equal(marker.source_id, "vox-reputation/vox-keyword-patrol");
+  assert.equal(marker.manager_source, "workspace");
+  assert.equal(marker.enabled, true);
+  assert.equal(marker.instance_key, "device:vox-keyword-patrol");
+  assert.match(marker.installed_at, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(
+    lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].global
+      .instanceKey,
+    "device:vox-keyword-patrol"
   );
 });
 
@@ -350,8 +412,16 @@ test("enlighten project install writes project-local codex skill and marker", as
   assert.equal(marker.agent, "enlighten-ai");
   assert.equal(marker.scope, "project");
   assert.equal(marker.scope_kind, "project");
+  assert.equal(marker.installed_by, "enlighten");
+  assert.equal(marker.source, "local-created");
+  assert.equal(marker.source_id, "vox-reputation/vox-keyword-patrol");
+  assert.equal(marker.manager_source, "workspace");
+  assert.equal(marker.enabled, true);
+  assert.match(marker.installed_at, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(marker.project_dir, realProjectDir);
   assert.match(marker.instance_key, /^project:project-[a-f0-9]{12}:vox-keyword-patrol$/);
+  assert.equal(marker.organization_id, undefined);
+  assert.equal(marker.space_id, undefined);
   assert.match(config, /managedBy: "@enlighten-vox\/skills"/);
   assert.match(config, /scopeKind: project/);
   assert.doesNotMatch(config, /organizationId/);

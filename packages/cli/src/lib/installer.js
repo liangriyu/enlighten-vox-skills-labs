@@ -251,7 +251,8 @@ function normalizeResourcePattern(pattern) {
 }
 
 function buildInstallMarker(record, plan, options) {
-  return compactObject({
+  const managerSource = options.source ?? "workspace";
+  const common = {
     managedBy: "@enlighten-vox/skills",
     schema: "installed-skill/v1",
     agent: plan.agent,
@@ -264,7 +265,21 @@ function buildInstallMarker(record, plan, options) {
     organization_id: record.organizationId,
     space_id: record.spaceId,
     instance_key: record.instanceKey,
-    source: options.source ?? "workspace"
+    source: managerSource
+  };
+
+  if (plan.agent !== "enlighten-ai") {
+    return compactObject(common);
+  }
+
+  return compactObject({
+    ...common,
+    installed_by: "enlighten",
+    source: record.scopeKind === "space" ? "cloud-owned" : "local-created",
+    source_id: record.id,
+    installed_at: new Date().toISOString(),
+    enabled: true,
+    manager_source: managerSource
   });
 }
 
