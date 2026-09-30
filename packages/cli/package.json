@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "description": "Git-backed Skill manager CLI for Codex and Enlighten AI.",
   "type": "module",
+  "license": "MIT",
   "bin": {
     "skills": "src/index.js"
   },
@@ -18,6 +19,15 @@
   "engines": {
     "node": ">=18"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liangriyu/enlighten-vox-skills-labs.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/liangriyu/enlighten-vox-skills-labs/issues"
+  },
+  "homepage": "https://github.com/liangriyu/enlighten-vox-skills-labs#readme",
   "keywords": [
     "skills",
     "codex",

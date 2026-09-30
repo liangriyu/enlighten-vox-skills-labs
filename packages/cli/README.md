@@ -35,6 +35,31 @@ npx @enlighten-vox/skills add \
   --yes
 ```
 
+Install the same Suite for an Enlighten AI space:
+
+```bash
+npx @enlighten-vox/skills add \
+  vox-reputation/vox-keyword-patrol \
+  --registry https://github.com/enlighten-vox/skills \
+  --agent enlighten-ai \
+  --scope space \
+  --organization-id <org-id> \
+  --space-id <space-id> \
+  --yes
+```
+
+Install it into a local project directory for Enlighten AI:
+
+```bash
+npx @enlighten-vox/skills add \
+  vox-reputation/vox-keyword-patrol \
+  --registry https://github.com/enlighten-vox/skills \
+  --agent enlighten-ai \
+  --scope project \
+  --project-dir . \
+  --yes
+```
+
 Inspect a Skill from a Gitee or GitLab repository:
 
 ```bash
@@ -51,20 +76,31 @@ Read-only project commands can default to the current shell directory. Actual
 non-interactive project mutations require `--project-dir` so installs, updates,
 and removals cannot silently target the wrong workspace.
 
-For Enlighten AI project installs, pass concrete `--organization-id` and
+Scope targets:
+
+```text
+codex global: ~/.codex/skills/<skill>
+codex project: <projectDir>/.codex/skills/<skill>
+enlighten-ai global: {userData}/codex-home/skills/device/<skill>
+enlighten-ai space: {userData}/codex-home/skills/by-space/organizations/<org>/spaces/<space>/<skill>
+enlighten-ai project: <projectDir>/.codex/skills/<skill>
+```
+
+For Enlighten AI space installs, pass concrete `--organization-id` and
 `--space-id`, or set `ENLIGHTEN_ORG_ID` and `ENLIGHTEN_SPACE_ID`. Dry-runs may
-show placeholder ids, but real installs reject them.
+show placeholder ids, but real installs reject them. Codex does not support
+`--scope space`.
 
 ## Commands
 
 ```text
-skills add <source> [--suite <id> | --skill <id>]
+skills add <source> [--suite <id> | --skill <id>] [--agent codex|enlighten-ai] [--scope global|space|project]
 skills add <source> --list
 skills add <domain>/<suite-or-skill> --registry <source>
-skills list
-skills remove <id>
-skills update [<id>]
-skills doctor
+skills list [--agent codex|enlighten-ai] [--scope global|space|project]
+skills remove <id> [--agent codex|enlighten-ai] [--scope global|space|project]
+skills update [<id>] [--agent codex|enlighten-ai] [--scope global|space|project]
+skills doctor [--agent codex|enlighten-ai] [--scope global|space|project]
 skills validate [--registry <source>]
 ```
 
