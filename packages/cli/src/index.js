@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "./lib/args.js";
 import { CliUsageError } from "./lib/errors.js";
@@ -16,7 +17,12 @@ import {
 } from "./lib/lockfile.js";
 import { validateRegistryManifests } from "./lib/manifest.js";
 import { resolveProjectScope } from "./lib/project-scope.js";
-import { resolveRequest, withRegistryRoot, withResolvedInstallRequest } from "./lib/resolver.js";
+import {
+  resolveRequest,
+  withDiscoveredSource,
+  withRegistryRoot,
+  withResolvedInstallRequest
+} from "./lib/resolver.js";
 import {
   buildRemovePlan,
   buildUpdatePlan,
@@ -40,6 +46,22 @@ export async function run(argv, io = {}) {
     }
 
     if (parsed.command === "add") {
+      if (parsed.options.list) {
+        return await withDiscoveredSource(
+          parsed.target,
+          {
+            ...parsed.options,
+            rootDir: cwd
+          },
+          ({ discovered, source }) => {
+            stdout.write(
+              `${JSON.stringify(buildDiscoveryResult(parsed.target, source, discovered), null, 2)}\n`
+            );
+            return 0;
+          }
+        );
+      }
+
       const projectScope = await resolveProjectScope(
         {
           ...parsed.options,
@@ -59,6 +81,12 @@ export async function run(argv, io = {}) {
           rootDir: cwd
         },
         async (resolved) => {
+          if (isDirectExternalSource(resolved) && parsed.options.dryRun !== true) {
+            throw new CliUsageError(
+              "External source installs currently support --list and --dry-run only. Run `skills add <source> --list` first, then `skills add <source> --skill <id> --dry-run` to inspect the plan."
+            );
+          }
+
           const plan = buildInstallPlan(resolved, parsed.options, projectScope);
 
           if (parsed.options.dryRun) {
@@ -344,11 +372,74 @@ function preserveUpdateInstallBindings(plan, records = []) {
   });
 }
 
+function isDirectExternalSource(resolved) {
+  return resolved.source?.sourceUsage === "direct";
+}
+
+function buildDiscoveryResult(target, source, discovered) {
+  return {
+    schema: "source-discovery/v1",
+    request: target,
+    source: publicSource(source),
+    suites: discovered.suites.map((suite) => publicSuite(suite, discovered.sourceRoot)),
+    skills: discovered.skills.map((skill) => publicSkill(skill, discovered.sourceRoot))
+  };
+}
+
+function publicSource(source) {
+  return compactObject({
+    type: source.type,
+    sourceType: source.type,
+    sourceUsage: source.sourceUsage,
+    sourceUrl: source.url,
+    sourceRequest: source.request,
+    localPath: source.type === "local" ? source.localPath : undefined,
+    ref: source.ref,
+    subpath: source.subpath,
+    commit: source.commit
+  });
+}
+
+function publicSuite(suite, sourceRoot) {
+  return compactObject({
+    id: suite.id,
+    version: suite.version,
+    name: suite.name,
+    description: suite.description,
+    skills: suite.skills,
+    manifestPath: relativeManifestPath(sourceRoot, suite.manifestPath),
+    selectors: suite.selectorNames
+  });
+}
+
+function publicSkill(skill, sourceRoot) {
+  return compactObject({
+    id: skill.id,
+    version: skill.version,
+    name: skill.name,
+    description: skill.description,
+    entry: skill.entry,
+    resources: skill.resources,
+    manifestPath: relativeManifestPath(sourceRoot, skill.manifestPath),
+    selectors: skill.selectorNames
+  });
+}
+
+function relativeManifestPath(sourceRoot, manifestPath) {
+  return path.relative(sourceRoot, manifestPath).split(path.sep).join("/");
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+
 function helpText() {
   return `@enlighten-vox/skills MVP
 
 Usage:
-  skills add <domain>/<suite-or-skill|git-source> [--registry <path-or-git-source>] [--suite <id>|--skill <id>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run]
+  skills add <source> --list
+  skills add <source> [--suite <id>|--skill <id>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] --dry-run
+  skills add <domain>/<suite-or-skill> [--registry <path-or-git-source>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run]
   skills list [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>]
   skills remove <domain>/<suite-or-skill> [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run] [--yes]
   skills update [domain/suite-or-skill] [--registry <path-or-git-source>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run] [--yes]
@@ -362,6 +453,7 @@ Project scope:
 Install:
   Use --yes for non-interactive installation.
   Use --force only to replace a manager-owned or explicitly replaceable target.
+  External direct sources are limited to --list and --dry-run in this release.
 `;
 }
 

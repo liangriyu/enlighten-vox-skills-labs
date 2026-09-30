@@ -52,6 +52,7 @@ function describeSource(source) {
   return compactObject({
     type: source.type,
     sourceType: source.type,
+    sourceUsage: source.sourceUsage,
     sourceUrl: source.url,
     ref: source.ref,
     subpath: source.subpath,

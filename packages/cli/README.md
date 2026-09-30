@@ -11,16 +11,16 @@ is materialized into the selected agent's Skill directory during installation.
 npx @enlighten-vox/skills --help
 ```
 
-Install a Suite from a Git repository:
+Discover Skills and Suites from a Git repository:
 
 ```bash
-npx @enlighten-vox/skills add \
-  https://github.com/enlighten-vox/skills \
-  --suite vox-reputation/vox-keyword-patrol \
-  --agent codex \
-  --scope project \
-  --project-dir . \
-  --yes
+npx @enlighten-vox/skills add https://github.com/enlighten-vox/skills --list
+```
+
+Inspect a direct external source install plan:
+
+```bash
+npx @enlighten-vox/skills add github:owner/repo --skill demo --agent codex --dry-run
 ```
 
 Install a Suite by managed id from an explicit registry checkout or Git source:
@@ -35,11 +35,11 @@ npx @enlighten-vox/skills add \
   --yes
 ```
 
-Install a Skill from a Gitee or GitLab repository:
+Inspect a Skill from a Gitee or GitLab repository:
 
 ```bash
-npx @enlighten-vox/skills add gitee:owner/repo --skill demo
-npx @enlighten-vox/skills add gitlab:group/repo --skill demo
+npx @enlighten-vox/skills add gitee:owner/repo --skill demo --dry-run
+npx @enlighten-vox/skills add gitlab:group/repo --skill demo --dry-run
 ```
 
 The resolver also accepts GitHub/Gitee/GitLab HTTPS tree URLs, SSH Git URLs,
@@ -59,6 +59,7 @@ show placeholder ids, but real installs reject them.
 
 ```text
 skills add <source> [--suite <id> | --skill <id>]
+skills add <source> --list
 skills add <domain>/<suite-or-skill> --registry <source>
 skills list
 skills remove <id>
@@ -68,4 +69,6 @@ skills validate [--registry <source>]
 ```
 
 Use `--dry-run` to inspect an install plan and `--yes` for non-interactive
-installation, update, or removal.
+installation, update, or removal. Direct external sources currently support
+`--list` and `--dry-run` only; use `--registry <source>` with a managed id for
+real installs from a registry repository.

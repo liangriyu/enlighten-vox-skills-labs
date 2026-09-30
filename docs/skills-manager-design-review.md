@@ -53,15 +53,13 @@
 - 基础 `remove` 支持 manager-owned install target 删除与 Suite 引用清理。
 - 基础 `update` 支持 workspace source 的顶层 Suite / 直接安装 Skill 重新安装与 lockfile 刷新。
 - 静态 `doctor` 支持 project dir、project config、lockfile、install marker 和 Enlighten 占位 org/space 检查。
+- 外部 source parser、只读 `add <source> --list` 和 direct source dry-run；真实 direct source install 暂时拦截。
 - Vox Suite 的基础 manifest 与安装验证测试。
 
 当前还没有完整具备：
 
 - 外部 source 的精确 `update`。
-- 外部 source parser。
-- `add <source> --list`。
 - `use <source>`。
-- 完整 schema 校验。
 - installer adapter 抽象拆分。
 - lockfile v2 的可更新字段。
 - Enlighten AI 真实 runtime 可见性验证与 `doctor --runtime-check`。
@@ -184,14 +182,14 @@ V1 已明确 `skills.lock` 使用 JSON，设计文档示例已同步为 JSON；`
 - 校验所有 suite 引用的 skill 存在。
 - 校验所有 skill entry/resource 存在且不逃逸。
 
-### P0-5：外部 source 能力不能直接并入主安装路径
+### P0-5：外部 source 能力不能直接并入主安装路径（已收敛）
 
-外部 source parser 很诱人，但如果直接和 install 绑定，会把网络、认证、下载、archive、安全和 update 全部拉进关键路径。
+当前实现已调整为：外部 direct source 支持 `add <source> --list` 只读发现，以及 `add <source> --skill ... --dry-run` 计划预览；非 dry-run 的真实 direct source install 会被 CLI 拦截。通过 `--registry <source>` 使用托管 registry 安装不受影响。
 
 建议：
 
-- 第一阶段只做 `parseSource` 和 `discoverSkills` 的只读能力。
-- 先交付 `add <source> --list`。
+- 第一阶段只做 `parseSource` 和 `discoverSkills` 的只读能力。已完成基础实现。
+- 先交付 `add <source> --list`。已完成基础实现。
 - `add <source> --skill ... --dry-run` 稳定后，再允许真实安装。
 - direct download/archive 必须等下载限额、解压限额、path traversal tests 完成后再开放。
 
@@ -281,12 +279,12 @@ node packages/cli/src/index.js add vox-reputation/vox-keyword-patrol --agent cod
 
 任务：
 
-- 新增 `source-parser.js`。
-- 新增 `discover-skills.js`。
+- 新增 `source-parser.js`。已完成基础实现。
+- 新增 discovery。已完成基础实现。
 - 支持 local path source。
 - 支持 GitHub/GitLab/Azure/SSH URL 的结构解析。
-- 支持 `add <source> --list`。
-- 增加 terminal metadata sanitize。
+- 支持 `add <source> --list`。已完成基础实现。
+- 增加 terminal metadata sanitize。已完成基础实现。
 
 通过标准：
 
@@ -351,7 +349,7 @@ npm test -- source-parser
 | --- | --- | --- | --- |
 | schema 与设计不一致 | P0 | 安装错误配置仍可能成功 | 已补 schema 与 manifest 校验 |
 | Enlighten project 写入占位 org/space | P0 | 污染 userData，runtime 不可见 | 非 dry-run 强制真实 org/space |
-| 外部 source 过早真实安装 | P0 | 安全边界和 update 语义不稳定 | 先 list/dry-run，再 install |
+| 外部 source 过早真实安装 | P0 | 安全边界和 update 语义不稳定 | direct source 真实安装已拦截，只保留 list/dry-run |
 | lockfile 格式不统一 | P0 | 后续 update/remove 难维护 | 已固定 JSON lockfile |
 | validate 硬编码 Vox | P1 | 校验覆盖不足 | 扫描全 registry |
 | Adapter 未抽象 | P1 | Codex/Enlighten 逻辑继续耦合 | 拆 adapter interface |

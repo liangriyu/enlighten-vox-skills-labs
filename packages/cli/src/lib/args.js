@@ -12,7 +12,7 @@ const STRING_OPTIONS = new Set([
   "skill"
 ]);
 
-const BOOLEAN_OPTIONS = new Set(["dry-run", "yes", "verbose", "help", "force"]);
+const BOOLEAN_OPTIONS = new Set(["dry-run", "yes", "verbose", "help", "force", "list"]);
 
 export function parseArgs(argv) {
   const [command, ...tokens] = argv;

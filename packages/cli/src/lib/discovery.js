@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CliUsageError } from "./errors.js";
-import { readManifest } from "./manifest.js";
+import { parseYamlSubset, readManifest } from "./manifest.js";
 
 export async function discoverSource(sourceRoot) {
   const manifestFiles = await findFiles(sourceRoot, (filePath, entry) => {
@@ -117,6 +117,10 @@ export function selectDiscoveredRequest(discovered, options = {}) {
     };
   }
 
+  if (discovered.suites.length === 0 && discovered.skills.length === 0) {
+    throw new CliUsageError("Git source does not contain discoverable Suites or Skills.");
+  }
+
   throw new CliUsageError(
     "Git source contains multiple Suites or Skills. Choose one with --suite <id> or --skill <id>."
   );
@@ -130,6 +134,9 @@ async function discoverMarkdownSkills(sourceRoot) {
   return Promise.all(
     markdownFiles.map(async (manifestPath) => {
       const metadata = await readSkillMarkdownMetadata(manifestPath);
+      if (!metadata || metadata.internal === true || metadata.metadata?.internal === true) {
+        return null;
+      }
       const directoryName = path.basename(path.dirname(manifestPath));
       const name = metadata.name ?? directoryName;
       const id = `external/${slugify(name)}`;
@@ -146,36 +153,37 @@ async function discoverMarkdownSkills(sourceRoot) {
         selectorNames: uniqueStrings([id, name, directoryName])
       };
     })
-  );
+  ).then((skills) => skills.filter(Boolean));
 }
 
 async function readSkillMarkdownMetadata(filePath) {
   const content = await fs.readFile(filePath, "utf8");
   const lines = content.split(/\r?\n/);
   if (lines[0]?.trim() !== "---") {
-    throw new CliUsageError(`Skill Markdown is missing frontmatter: ${filePath}`);
+    return null;
   }
 
-  const metadata = {};
+  let endIndex = -1;
   for (let index = 1; index < lines.length; index += 1) {
     const line = lines[index].trim();
     if (line === "---") {
+      endIndex = index;
       break;
     }
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-    const separator = line.indexOf(":");
-    if (separator === -1) {
-      continue;
-    }
-    const key = line.slice(0, separator).trim();
-    const value = line.slice(separator + 1).trim();
-    metadata[key] = stripQuotes(value);
   }
 
+  if (endIndex === -1) {
+    return null;
+  }
+
+  let metadata;
+  try {
+    metadata = parseYamlSubset(lines.slice(1, endIndex).join("\n"));
+  } catch {
+    return null;
+  }
   if (!metadata.name || !metadata.description) {
-    throw new CliUsageError(`Skill Markdown frontmatter needs name and description: ${filePath}`);
+    return null;
   }
   return metadata;
 }
@@ -248,14 +256,4 @@ function slugify(value) {
     .replace(/[^a-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slug || "skill";
-}
-
-function stripQuotes(value) {
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
-  }
-  return value;
 }

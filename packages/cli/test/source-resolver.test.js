@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile as execFileCallback } from "node:child_process";
 import fs from "node:fs/promises";
-import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -62,11 +61,109 @@ test("rejects source subpath traversal", () => {
   );
 });
 
-test("clones a Git source, discovers a Markdown Skill, installs it, and records source metadata", async () => {
-  const sourceRepo = await fs.mkdtemp(path.join(os.tmpdir(), "skills-source-repo-"));
+test("lists discovered Markdown Skills from a Git source without installing", async () => {
+  const { sourceRepo, sourceUrl, commit } = await createSourceRepo();
+
+  const stdout = createWriter();
+  const stderr = createWriter();
+  const exitCode = await run(["add", sourceUrl, "--list"], {
+    cwd: repoRoot,
+    stdin: { isTTY: false },
+    stdout,
+    stderr
+  });
+
+  assert.equal(exitCode, 0, stderr.output);
+  const result = JSON.parse(stdout.output);
+  assert.equal(result.schema, "source-discovery/v1");
+  assert.equal(result.source.sourceType, "git");
+  assert.equal(result.source.sourceUrl, sourceUrl);
+  assert.equal(result.source.commit, commit);
+  assert.deepEqual(
+    result.skills.map((skill) => skill.id),
+    ["external/demo"]
+  );
+  assert.equal(result.skills[0].manifestPath, "skills/demo/SKILL.md");
+  assert.equal(result.skills[0].description, "A Git sourced demo Skill.");
+  assert.deepEqual(result.suites, []);
+  await assert.rejects(
+    fs.access(path.join(sourceRepo, ".codex", "skills", "demo")),
+    /ENOENT/
+  );
+});
+
+test("dry-runs direct external source installs and rejects real installs", async () => {
+  const { sourceRepo, sourceUrl, commit } = await createSourceRepo();
   const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-source-project-"));
+
+  const dryRunStdout = createWriter();
+  const dryRunStderr = createWriter();
+  const dryRunExitCode = await run(
+    [
+      "add",
+      sourceUrl,
+      "--skill",
+      "demo",
+      "--agent",
+      "codex",
+      "--scope",
+      "project",
+      "--project-dir",
+      projectDir,
+      "--dry-run"
+    ],
+    {
+      cwd: repoRoot,
+      stdin: { isTTY: false },
+      stdout: dryRunStdout,
+      stderr: dryRunStderr
+    }
+  );
+
+  assert.equal(dryRunExitCode, 0, dryRunStderr.output);
+  const plan = JSON.parse(dryRunStdout.output);
+  assert.equal(plan.schema, "install-plan/v1");
+  assert.equal(plan.source.sourceUsage, "direct");
+  assert.equal(plan.source.sourceUrl, sourceUrl);
+  assert.equal(plan.source.commit, commit);
+  assert.equal(plan.skills[0].id, "external/demo");
+
+  const installStdout = createWriter();
+  const installStderr = createWriter();
+  const installExitCode = await run(
+    [
+      "add",
+      sourceUrl,
+      "--skill",
+      "demo",
+      "--agent",
+      "codex",
+      "--scope",
+      "project",
+      "--project-dir",
+      projectDir,
+      "--yes"
+    ],
+    {
+      cwd: repoRoot,
+      stdin: { isTTY: false },
+      stdout: installStdout,
+      stderr: installStderr
+    }
+  );
+
+  assert.equal(installExitCode, 2);
+  assert.match(installStderr.output, /External source installs currently support --list and --dry-run only/);
+  const installedRoot = path.join(projectDir, ".codex", "skills", "demo");
+  await assert.rejects(fs.access(installedRoot), /ENOENT/);
+});
+
+async function createSourceRepo() {
+  const sourceRepo = await fs.mkdtemp(path.join(os.tmpdir(), "skills-source-repo-"));
   const skillDir = path.join(sourceRepo, "skills", "demo");
+  const invalidSkillDir = path.join(sourceRepo, "skills", "invalid");
   await fs.mkdir(skillDir, { recursive: true });
+  await fs.mkdir(invalidSkillDir, { recursive: true });
   await fs.writeFile(
     path.join(skillDir, "SKILL.md"),
     [
@@ -83,60 +180,25 @@ test("clones a Git source, discovers a Markdown Skill, installs it, and records 
     "utf8"
   );
   await fs.writeFile(path.join(skillDir, "notes.txt"), "source resource\n", "utf8");
+  await fs.writeFile(
+    path.join(invalidSkillDir, "SKILL.md"),
+    ["---", "name: invalid", "---", "", "# Invalid", ""].join("\n"),
+    "utf8"
+  );
 
   await execFile("git", ["-C", sourceRepo, "init", "-q"]);
   await execFile("git", ["-C", sourceRepo, "config", "user.email", "skills-test@example.com"]);
   await execFile("git", ["-C", sourceRepo, "config", "user.name", "Skills Test"]);
   await execFile("git", ["-C", sourceRepo, "add", "."]);
   await execFile("git", ["-C", sourceRepo, "commit", "-qm", "add demo skill"]);
-  const { stdout: commitOutput } = await execFile("git", [
-    "-C",
+  const { stdout } = await execFile("git", ["-C", sourceRepo, "rev-parse", "HEAD"]);
+
+  return {
     sourceRepo,
-    "rev-parse",
-    "HEAD"
-  ]);
-
-  const stdout = createWriter();
-  const stderr = createWriter();
-  const exitCode = await run(
-    [
-      "add",
-      pathToFileURL(sourceRepo).href,
-      "--skill",
-      "demo",
-      "--agent",
-      "codex",
-      "--scope",
-      "project",
-      "--project-dir",
-      projectDir,
-      "--yes"
-    ],
-    {
-      cwd: repoRoot,
-      stdin: { isTTY: false },
-      stdout,
-      stderr
-    }
-  );
-
-  assert.equal(exitCode, 0, stderr.output);
-  const result = JSON.parse(stdout.output);
-  assert.equal(result.installed.length, 1);
-
-  const installedRoot = path.join(projectDir, ".codex", "skills", "demo");
-  assert.equal(await fs.readFile(path.join(installedRoot, "SKILL.md"), "utf8").then(Boolean), true);
-  assert.equal(await fs.readFile(path.join(installedRoot, "notes.txt"), "utf8"), "source resource\n");
-
-  const lockfile = JSON.parse(await fs.readFile(path.join(projectDir, "skills.lock"), "utf8"));
-  const source = lockfile.installed["skill:external/demo"].source;
-  assert.equal(source.type, "git");
-  assert.equal(source.sourceType, "git");
-  assert.equal(source.sourceUrl, pathToFileURL(sourceRepo).href);
-  assert.equal(source.skillPath, "skills/demo");
-  assert.equal(source.commit, commitOutput.trim());
-  assert.equal(fsSync.existsSync(sourceRepo), true);
-});
+    sourceUrl: pathToFileURL(sourceRepo).href,
+    commit: stdout.trim()
+  };
+}
 
 function createWriter() {
   const chunks = [];

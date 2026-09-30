@@ -79,6 +79,7 @@ export async function withResolvedInstallRequest(target, options = {}, callback)
         ...resolved,
         source: {
           ...source,
+          sourceUsage: "registry",
           localRoot: repositoryRoot,
           sourceRoot: rootDir,
           request: options.registry
@@ -119,6 +120,41 @@ export async function withResolvedInstallRequest(target, options = {}, callback)
         ...selected,
         source: {
           ...materializedSource,
+          sourceUsage: "direct",
+          localRoot: repositoryRoot,
+          sourceRoot: rootDir,
+          request: target
+        }
+      });
+    },
+    options
+  );
+}
+
+export async function withDiscoveredSource(target, options = {}, callback) {
+  if (!target) {
+    throw new CliUsageError("Missing target. Usage: skills add <source> --list");
+  }
+
+  const cwd = options.rootDir ?? process.cwd();
+  let source;
+  try {
+    source = parseSource(target, { cwd });
+  } catch {
+    throw new CliUsageError(`Unsupported Skill source for --list: ${target}`);
+  }
+
+  return withMaterializedSource(
+    source,
+    async ({ rootDir, repositoryRoot, source: materializedSource }) => {
+      const discovered = await discoverSource(rootDir);
+      return callback({
+        discovered,
+        rootDir,
+        repositoryRoot,
+        source: {
+          ...materializedSource,
+          sourceUsage: "direct",
           localRoot: repositoryRoot,
           sourceRoot: rootDir,
           request: target
