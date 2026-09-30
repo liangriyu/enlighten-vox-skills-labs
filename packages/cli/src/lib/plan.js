@@ -101,8 +101,7 @@ function buildSkillInstallRecord(skill, agent, scope, options, projectScope) {
     };
   }
 
-  const organizationId = options.organizationId ?? process.env.ENLIGHTEN_ORG_ID ?? "<org-id>";
-  const spaceId = options.spaceId ?? process.env.ENLIGHTEN_SPACE_ID ?? "<space-id>";
+  const { organizationId, spaceId } = resolveEnlightenProjectBinding(options);
   return {
     id: skill.id,
     version: skill.version,
@@ -128,6 +127,30 @@ function buildSkillInstallRecord(skill, agent, scope, options, projectScope) {
     instanceKey: `space:${organizationId}:${spaceId}:${directoryName}`,
     marker: ".enlighten-install.json"
   };
+}
+
+function resolveEnlightenProjectBinding(options = {}) {
+  const organizationId = options.organizationId ?? process.env.ENLIGHTEN_ORG_ID;
+  const spaceId = options.spaceId ?? process.env.ENLIGHTEN_SPACE_ID;
+
+  if (isConcreteBinding(organizationId) && isConcreteBinding(spaceId)) {
+    return { organizationId, spaceId };
+  }
+
+  if (options.dryRun === true) {
+    return {
+      organizationId: organizationId || "<org-id>",
+      spaceId: spaceId || "<space-id>"
+    };
+  }
+
+  throw new CliUsageError(
+    "Enlighten project installs require --organization-id and --space-id, or ENLIGHTEN_ORG_ID and ENLIGHTEN_SPACE_ID."
+  );
+}
+
+function isConcreteBinding(value) {
+  return Boolean(value && value !== "<org-id>" && value !== "<space-id>");
 }
 
 export function resolveEnlightenUserData(options = {}) {

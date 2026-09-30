@@ -76,9 +76,8 @@ export function buildRemovePlan(state, target, options = {}) {
   if (type === "suite") {
     const skillIds = suiteSkillIds(entry);
     const suiteRecordRemoved = removeAgentScope(entry, agent, scope);
-    const suiteStillInstalled = hasAnyAgentScope(entry);
 
-    if (!suiteStillInstalled) {
+    if (!hasAnyAgentScope(entry)) {
       delete installed[key];
     }
 
@@ -89,27 +88,29 @@ export function buildRemovePlan(state, target, options = {}) {
         continue;
       }
 
+      const storedRecord = mutableScopedRecord(skillEntry, agent, scope);
       const record = scopedRecord(skillEntry, skillId, agent, scope);
 
-      if (!suiteStillInstalled) {
-        skillEntry.requestedBy = removeValue(skillEntry.requestedBy, key);
-      }
-
-      if ((skillEntry.requestedBy ?? []).length > 0) {
-        kept.push({
-          id: skillId,
-          reason: `Still referenced by ${skillEntry.requestedBy.join(", ")}`
-        });
-      } else if (record) {
-        removeAgentScope(skillEntry, agent, scope);
-        removed.push(record);
-      } else {
+      if (!storedRecord) {
         kept.push({
           id: skillId,
           reason: `No ${agent}/${scope} install record`
         });
+      } else {
+        storedRecord.requestedBy = removeValue(scopedRequestedBy(skillEntry, agent, scope), key);
+
+        if (storedRecord.requestedBy.length > 0) {
+          kept.push({
+            id: skillId,
+            reason: `Still referenced by ${storedRecord.requestedBy.join(", ")}`
+          });
+        } else {
+          removeAgentScope(skillEntry, agent, scope);
+          removed.push(record);
+        }
       }
 
+      syncSkillRequestedByFromScopes(skillEntry);
       if (!hasAnyAgentScope(skillEntry) && (skillEntry.requestedBy ?? []).length === 0) {
         delete installed[skillKey];
       } else {
@@ -132,23 +133,26 @@ export function buildRemovePlan(state, target, options = {}) {
     };
   }
 
-  const suiteRefs = skillSuiteRefs(installed, id);
+  const scopedSuiteRefs = skillSuiteRefs(installed, id, agent, scope);
   const directRef = `skill:${id}`;
-  const requestedBy = entry.requestedBy ?? [];
+  const storedRecord = mutableScopedRecord(entry, agent, scope);
+  const record = scopedRecord(entry, id, agent, scope);
+  const requestedBy = scopedRequestedBy(entry, agent, scope);
 
-  if (suiteRefs.length > 0 && !requestedBy.includes(directRef) && options.force !== true) {
+  if (scopedSuiteRefs.length > 0 && !requestedBy.includes(directRef) && options.force !== true) {
     throw new CliUsageError(
-      `Skill ${id} is still referenced by suite(s): ${suiteRefs.join(", ")}. Remove the suite first.`
+      `Skill ${id} is still referenced by suite(s): ${scopedSuiteRefs.join(", ")}. Remove the suite first.`
     );
   }
 
-  const record = scopedRecord(entry, id, agent, scope);
-  entry.requestedBy = removeValue(entry.requestedBy, directRef);
+  if (storedRecord) {
+    storedRecord.requestedBy = removeValue(requestedBy, directRef);
+  }
 
-  if ((entry.requestedBy ?? []).length > 0 && options.force !== true) {
+  if (storedRecord && storedRecord.requestedBy.length > 0 && options.force !== true) {
     kept.push({
       id,
-      reason: `Still referenced by ${entry.requestedBy.join(", ")}`
+      reason: `Still referenced by ${storedRecord.requestedBy.join(", ")}`
     });
   } else if (record) {
     removeAgentScope(entry, agent, scope);
@@ -160,6 +164,7 @@ export function buildRemovePlan(state, target, options = {}) {
     });
   }
 
+  syncSkillRequestedByFromScopes(entry);
   if (!hasAnyAgentScope(entry) && (entry.requestedBy ?? []).length === 0) {
     delete installed[key];
   } else {
@@ -312,7 +317,7 @@ function buildSingleUpdateTarget(installed, target, agent, scope) {
 
   if (type === "skill") {
     const directRef = `skill:${id}`;
-    if (!Array.isArray(entry.requestedBy) || !entry.requestedBy.includes(directRef)) {
+    if (!scopedRequestedBy(entry, agent, scope).includes(directRef)) {
       throw new CliUsageError(
         `Skill ${id} is managed by a suite. Update the suite instead.`
       );
@@ -324,7 +329,8 @@ function buildSingleUpdateTarget(installed, target, agent, scope) {
     key,
     request: id,
     type,
-    source: entry.source
+    source: entry.source,
+    records: updateRecordsForTarget(installed, type, id, agent, scope)
   };
 }
 
@@ -344,13 +350,14 @@ function buildAllUpdateTargets(installed, agent, scope) {
         key,
         request: id,
         type,
-        source: entry.source
+        source: entry.source,
+        records: updateRecordsForTarget(installed, type, id, agent, scope)
       });
       continue;
     }
 
     const directRef = `skill:${id}`;
-    const requestedBy = entry.requestedBy ?? [];
+    const requestedBy = scopedRequestedBy(entry, agent, scope);
     const isDirectInstall = requestedBy.includes(directRef);
     const hasNoKnownRequester = requestedBy.length === 0 && skillSuiteRefs(installed, id).length === 0;
     if (isDirectInstall || hasNoKnownRequester) {
@@ -359,11 +366,28 @@ function buildAllUpdateTargets(installed, agent, scope) {
         key,
         request: id,
         type,
-        source: entry.source
+        source: entry.source,
+        records: updateRecordsForTarget(installed, type, id, agent, scope)
       });
     }
   }
   return targets;
+}
+
+function updateRecordsForTarget(installed, type, id, agent, scope) {
+  if (type === "skill") {
+    const entry = installed[`skill:${id}`];
+    const record = scopedRecord(entry, id, agent, scope);
+    return record ? [record] : [];
+  }
+
+  const suiteEntry = installed[`suite:${id}`];
+  return suiteSkillIds(suiteEntry)
+    .map((skillId) => {
+      const skillEntry = installed[`skill:${skillId}`];
+      return scopedRecord(skillEntry, skillId, agent, scope);
+    })
+    .filter(Boolean);
 }
 
 function assertWorkspaceSource(entry, key) {
@@ -375,7 +399,7 @@ function assertWorkspaceSource(entry, key) {
 }
 
 function scopedRecord(entry, id, agent, scope) {
-  const record = entry.agents?.[agent]?.[scope];
+  const record = mutableScopedRecord(entry, agent, scope);
   if (!record) {
     return null;
   }
@@ -386,6 +410,10 @@ function scopedRecord(entry, id, agent, scope) {
     scope,
     marker: markerNameForAgent(agent)
   };
+}
+
+function mutableScopedRecord(entry, agent, scope) {
+  return entry.agents?.[agent]?.[scope] ?? null;
 }
 
 function removeAgentScope(entry, agent, scope) {
@@ -410,17 +438,46 @@ function hasAgentScope(entry, agent, scope) {
   return Boolean(entry.agents?.[agent]?.[scope]);
 }
 
-function skillSuiteRefs(installed, skillId) {
+function skillSuiteRefs(installed, skillId, agent = null, scope = null) {
   const refs = [];
   for (const [key, entry] of Object.entries(installed)) {
     if (!key.startsWith("suite:")) {
       continue;
     }
-    if (suiteSkillIds(entry).includes(skillId) && hasAnyAgentScope(entry)) {
+    const installedForScope = agent && scope ? hasAgentScope(entry, agent, scope) : hasAnyAgentScope(entry);
+    if (suiteSkillIds(entry).includes(skillId) && installedForScope) {
       refs.push(key);
     }
   }
   return refs.sort();
+}
+
+function scopedRequestedBy(entry, agent, scope) {
+  const record = mutableScopedRecord(entry, agent, scope);
+  if (!record) {
+    return [];
+  }
+  if (Array.isArray(record.requestedBy)) {
+    return [...record.requestedBy].sort();
+  }
+  return (Array.isArray(entry.requestedBy) ? entry.requestedBy : []).sort();
+}
+
+function syncSkillRequestedByFromScopes(entry) {
+  const values = new Set();
+  for (const scopes of Object.values(entry.agents ?? {})) {
+    for (const record of Object.values(scopes ?? {})) {
+      for (const requester of record.requestedBy ?? []) {
+        values.add(requester);
+      }
+    }
+  }
+
+  if (values.size > 0) {
+    entry.requestedBy = [...values].sort();
+  } else {
+    delete entry.requestedBy;
+  }
 }
 
 async function checkProjectDirectory(project) {

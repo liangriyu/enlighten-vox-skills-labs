@@ -7,10 +7,9 @@
 核心用户任务：
 
 ```bash
-npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --agent codex
-npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --agent enlighten-ai
-npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --agent enlighten-ai --scope project --enlighten-flavor local
-npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --agent enlighten-ai --scope project --project-dir /Users/example/workspace/vox-huawei-honor --enlighten-flavor local
+npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --registry https://github.com/enlighten-vox/skills --agent codex
+npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --registry https://github.com/enlighten-vox/skills --agent enlighten-ai
+npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --registry https://github.com/enlighten-vox/skills --agent enlighten-ai --scope project --project-dir /Users/example/workspace/vox-huawei-honor --organization-id <org-id> --space-id <space-id> --enlighten-flavor local --yes
 ```
 
 安装后，用户可以让 Agent 完成：
@@ -21,7 +20,7 @@ npx @enlighten-vox/skills add vox-reputation/vox-keyword-patrol --agent enlighte
 - 将巡检结果写入指定飞书表格。
 - 生成本地证据包，便于复核、重跑和审计。
 
-当使用 `--scope project` 时，项目工作目录默认取当前 shell 目录，也可以通过 `--project-dir` 显式指定；该目录保存 `.skillsrc.yaml`、`skills.lock` 和 `.vox-patrol/` 运行输出。Enlighten AI 的 Skill 文件仍安装到 `codex-home/skills/by-space/organizations/<org-id>/spaces/<space-id>/<skill-id>/`。
+当使用 `--scope project` 时，真实安装、更新和卸载必须通过 `--project-dir` 显式指定项目工作目录；该目录保存 `.skillsrc.yaml`、`skills.lock` 和 `.vox-patrol/` 运行输出。Enlighten AI 的 Skill 文件仍安装到 `codex-home/skills/by-space/organizations/<org-id>/spaces/<space-id>/<skill-id>/`，真实安装必须提供具体 `organizationId` 和 `spaceId`。
 
 ## 2. 参考仓库观察
 

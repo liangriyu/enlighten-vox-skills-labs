@@ -1,8 +1,176 @@
 import fs from "node:fs";
+import path from "node:path";
+import { CliUsageError } from "./errors.js";
 
 export function readManifest(filePath) {
   const content = fs.readFileSync(filePath, "utf8");
   return parseYamlSubset(content);
+}
+
+export function validateRegistryManifests(rootDir) {
+  const registryPath = path.join(rootDir, "registry.yaml");
+  if (!fs.existsSync(registryPath)) {
+    throw new CliUsageError(`Registry manifest does not exist: ${registryPath}`);
+  }
+
+  const registry = readManifest(registryPath);
+  if (registry.schema !== "registry/v1") {
+    throw new CliUsageError(`Invalid registry schema: ${registryPath}`);
+  }
+  if (!Array.isArray(registry.domains) || registry.domains.length === 0) {
+    throw new CliUsageError(`Registry must declare at least one domain: ${registryPath}`);
+  }
+
+  const counts = {
+    domains: 0,
+    suites: 0,
+    skills: 0,
+    resources: 0
+  };
+
+  for (const domainId of registry.domains) {
+    validateDomain(rootDir, domainId, counts);
+  }
+
+  return counts;
+}
+
+function validateDomain(rootDir, domainId, counts) {
+  assertIdSegment(domainId, "domain id");
+  const domainRoot = path.join(rootDir, "domains", domainId);
+  const domainPath = path.join(domainRoot, "domain.yaml");
+  if (!fs.existsSync(domainPath)) {
+    throw new CliUsageError(`Domain manifest does not exist: ${domainPath}`);
+  }
+
+  const domain = readManifest(domainPath);
+  if (domain.schema !== "domain/v1") {
+    throw new CliUsageError(`Invalid domain schema: ${domainPath}`);
+  }
+  if (domain.id !== domainId) {
+    throw new CliUsageError(`Domain id mismatch in ${domainPath}: ${domain.id}`);
+  }
+  counts.domains += 1;
+
+  const suiteDir = path.join(domainRoot, "suites");
+  for (const suitePath of listYamlFiles(suiteDir)) {
+    validateSuite(rootDir, domainId, suitePath, counts);
+  }
+
+  const skillDir = path.join(domainRoot, "skills");
+  for (const skillPath of listSkillManifests(skillDir)) {
+    validateSkillManifest(rootDir, domainId, skillPath, counts);
+  }
+}
+
+function validateSuite(rootDir, domainId, suitePath, counts) {
+  const suite = readManifest(suitePath);
+  if (suite.schema !== "suite/v1") {
+    throw new CliUsageError(`Invalid suite schema: ${suitePath}`);
+  }
+  assertTargetId(suite.id, "suite id", suitePath);
+  if (!suite.id.startsWith(`${domainId}/`)) {
+    throw new CliUsageError(`Suite id must stay in domain ${domainId}: ${suitePath}`);
+  }
+  if (!suite.version) {
+    throw new CliUsageError(`Suite manifest is missing version: ${suitePath}`);
+  }
+  if (!Array.isArray(suite.skills) || suite.skills.length === 0) {
+    throw new CliUsageError(`Suite manifest must reference at least one skill: ${suitePath}`);
+  }
+
+  for (const skillId of suite.skills) {
+    assertTargetId(skillId, "suite skill reference", suitePath);
+    const [skillDomain, skillName] = skillId.split("/");
+    const skillPath = path.join(
+      rootDir,
+      "domains",
+      skillDomain,
+      "skills",
+      skillName,
+      "skill.yaml"
+    );
+    if (!fs.existsSync(skillPath)) {
+      throw new CliUsageError(`Suite references missing skill ${skillId}: ${suitePath}`);
+    }
+  }
+  counts.suites += 1;
+}
+
+function validateSkillManifest(rootDir, domainId, skillPath, counts) {
+  const skill = readManifest(skillPath);
+  if (skill.schema !== "skill/v1") {
+    throw new CliUsageError(`Invalid skill schema: ${skillPath}`);
+  }
+  assertTargetId(skill.id, "skill id", skillPath);
+  if (!skill.id.startsWith(`${domainId}/`)) {
+    throw new CliUsageError(`Skill id must stay in domain ${domainId}: ${skillPath}`);
+  }
+  if (!skill.version) {
+    throw new CliUsageError(`Skill manifest is missing version: ${skillPath}`);
+  }
+  if (!skill.entry) {
+    throw new CliUsageError(`Skill manifest is missing entry: ${skillPath}`);
+  }
+
+  const skillRoot = path.dirname(skillPath);
+  const resourcePatterns = Array.isArray(skill.resources) ? skill.resources : [skill.entry];
+  for (const resourcePattern of resourcePatterns) {
+    const resourcePath = resolveDeclaredResource(skillRoot, resourcePattern);
+    if (!fs.existsSync(resourcePath)) {
+      throw new CliUsageError(`Skill resource does not exist (${resourcePattern}): ${skillPath}`);
+    }
+    counts.resources += 1;
+  }
+  counts.skills += 1;
+}
+
+function resolveDeclaredResource(skillRoot, resourcePattern) {
+  if (typeof resourcePattern !== "string" || !resourcePattern.trim()) {
+    throw new CliUsageError("Skill resource must be a non-empty relative path.");
+  }
+  const trimmed = resourcePattern.trim();
+  const source = trimmed.endsWith("/**") ? trimmed.slice(0, -3).replace(/\/$/, "") : trimmed;
+  if (path.isAbsolute(source) || source.split("/").includes("..")) {
+    throw new CliUsageError(`Skill resource must stay inside its package: ${resourcePattern}`);
+  }
+  return path.join(skillRoot, source);
+}
+
+function listYamlFiles(directory) {
+  if (!fs.existsSync(directory)) {
+    return [];
+  }
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".yaml"))
+    .map((entry) => path.join(directory, entry.name))
+    .sort();
+}
+
+function listSkillManifests(directory) {
+  if (!fs.existsSync(directory)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(directory, entry.name, "skill.yaml"))
+    .filter((manifestPath) => fs.existsSync(manifestPath))
+    .sort();
+}
+
+function assertTargetId(value, label, manifestPath) {
+  if (typeof value !== "string" || !/^[a-z0-9-]+\/[a-z0-9-]+$/.test(value)) {
+    throw new CliUsageError(`Invalid ${label} in ${manifestPath}: ${value}`);
+  }
+}
+
+function assertIdSegment(value, label) {
+  if (typeof value !== "string" || !/^[a-z0-9-]+$/.test(value)) {
+    throw new CliUsageError(`Invalid ${label}: ${value}`);
+  }
 }
 
 export function parseYamlSubset(content) {

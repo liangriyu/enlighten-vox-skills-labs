@@ -10,6 +10,12 @@ export async function resolveProjectScope(options, io = {}) {
   }
 
   const cwd = io.cwd ?? process.cwd();
+  if (options.requireExplicitProjectDir && !options.projectDir) {
+    throw new CliUsageError(
+      "Project mutations in non-interactive mode require --project-dir <path>."
+    );
+  }
+
   const projectDirInput = options.projectDir ?? cwd;
 
   const projectDir = resolveExistingDirectory(projectDirInput, cwd);

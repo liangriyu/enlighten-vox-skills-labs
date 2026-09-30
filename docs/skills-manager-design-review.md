@@ -37,7 +37,7 @@
 - Skill manifest 与 resource 安装边界。
 - Codex global/project 安装。
 - Enlighten AI device/space scoped 安装。
-- project scope 默认绑定当前 shell 目录，也允许显式选择 `projectDir`。
+- read-only project scope 可以默认绑定当前 shell 目录；真实非交互 project mutation 要求显式 `projectDir`。
 - `.skillsrc.yaml` 与 `skills.lock` 的项目落点。
 - Vox 舆情巡检作为首个标准化 Suite。
 - 对 `vercel-labs/skills` 的可吸收设计总结。
@@ -46,7 +46,7 @@
 
 - `add` dry-run 与实际安装主流程。
 - Codex 与 Enlighten AI 的基础 install plan。
-- project scope 缺省时解析当前 shell 目录，`--project-dir` 可显式覆盖。
+- read-only project scope 缺省时解析当前 shell 目录；非交互 install/update/remove 需要 `--project-dir`。
 - manager marker 防止覆盖非托管目录。
 - 基础 `skills.lock` / `.skillsrc.yaml` 写入。
 - `list` 读取 lockfile 并输出已安装 Suite / Skill。
@@ -130,9 +130,9 @@ npm test
 npm run validate:manifests
 ```
 
-### P0-2：真实 install 不应允许 Enlighten project 使用占位 org/space
+### P0-2：真实 install 不应允许 Enlighten project 使用占位 org/space（已修复）
 
-当前实现会在缺少 `--organization-id` / `--space-id` 时 fallback 到 `<org-id>` / `<space-id>`。dry-run 可以接受占位符，但真实安装写入占位目录会污染 userData，并且无法代表真实 space 绑定。
+当前实现已调整为：dry-run 可以展示 `<org-id>` / `<space-id>` 占位符，真实安装必须提供 `--organization-id` / `--space-id` 或 `ENLIGHTEN_ORG_ID` / `ENLIGHTEN_SPACE_ID`。
 
 风险：
 
@@ -169,9 +169,9 @@ npm test -- packages/cli/test/project-scope.test.js
 - 文档示例与实际文件格式一致。
 - lockfile schema 覆盖 JSON 结构。
 
-### P0-4：`validate` 命令不应硬编码 Vox Suite
+### P0-4：`validate` 命令不应硬编码 Vox Suite（已修复）
 
-当前 `validate` 只调用 `resolveRequest("vox-reputation/vox-keyword-patrol")`。这适合 MVP smoke test，但不适合作为长期校验命令。
+当前 `validate` 已改为从 registry 扫描 domain、suite、skill 和 declared resources，并输出覆盖计数。
 
 风险：
 

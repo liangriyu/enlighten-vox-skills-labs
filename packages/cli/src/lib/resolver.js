@@ -55,10 +55,15 @@ export function resolveRequest(target, options = {}) {
 export async function withResolvedInstallRequest(target, options = {}, callback) {
   let workspaceError;
   let workspaceResolved;
+  const cwd = options.rootDir ?? process.cwd();
+  const registryRoot = options.registry ? null : options.registryRoot ?? findRegistryRoot(cwd);
+
   try {
-    workspaceResolved = resolveRequest(target, {
-      rootDir: options.rootDir ?? process.cwd()
-    });
+    if (registryRoot) {
+      workspaceResolved = resolveRequest(target, {
+        rootDir: registryRoot
+      });
+    }
   } catch (error) {
     workspaceError = error;
   }
@@ -67,11 +72,38 @@ export async function withResolvedInstallRequest(target, options = {}, callback)
     return callback(workspaceResolved);
   }
 
+  if (options.registry && looksLikeManagedTarget(target)) {
+    return withRegistryRoot(options, ({ rootDir, repositoryRoot, source }) => {
+      const resolved = resolveRequest(target, { rootDir });
+      return callback({
+        ...resolved,
+        source: {
+          ...source,
+          localRoot: repositoryRoot,
+          sourceRoot: rootDir,
+          request: options.registry
+        }
+      });
+    });
+  }
+
+  if (looksLikeManagedTarget(target)) {
+    throw (
+      workspaceError ??
+      new CliUsageError(
+        "No Skill registry checkout found. Run from the registry repository or pass --registry <path-or-git-source>."
+      )
+    );
+  }
+
   let source;
   try {
-    source = parseSource(target, { cwd: options.rootDir ?? process.cwd() });
+    source = parseSource(target, { cwd });
   } catch {
-    throw workspaceError;
+    throw (
+      workspaceError ??
+      new CliUsageError(`Unsupported Skill source or registry target: ${target}`)
+    );
   }
 
   return withMaterializedSource(
@@ -97,8 +129,73 @@ export async function withResolvedInstallRequest(target, options = {}, callback)
   );
 }
 
+export async function withRegistryRoot(options = {}, callback) {
+  const cwd = options.rootDir ?? process.cwd();
+
+  if (options.registry) {
+    const source = parseSource(options.registry, { cwd });
+    return withMaterializedSource(
+      source,
+      ({ rootDir, repositoryRoot, source: materializedSource }) =>
+        callback({
+          rootDir,
+          repositoryRoot,
+          source: materializedSource
+        }),
+      options
+    );
+  }
+
+  const registryRoot = options.registryRoot ?? findRegistryRoot(cwd);
+  if (!registryRoot) {
+    throw new CliUsageError(
+      "No Skill registry checkout found. Run from the registry repository or pass --registry <path-or-git-source>."
+    );
+  }
+
+  return callback({
+    rootDir: registryRoot,
+    repositoryRoot: registryRoot,
+    source: {
+      type: "workspace",
+      localRoot: registryRoot
+    }
+  });
+}
+
+export function findRegistryRoot(startDir) {
+  let current = path.resolve(startDir);
+
+  for (;;) {
+    if (
+      fs.existsSync(path.join(current, "registry.yaml")) &&
+      fs.existsSync(path.join(current, "domains"))
+    ) {
+      return current;
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+}
+
 export function skillDirectoryName(skillId) {
   return splitTarget(skillId)[1];
+}
+
+export function looksLikeManagedTarget(target) {
+  if (typeof target !== "string") {
+    return false;
+  }
+  const parts = target.split("/");
+  return (
+    parts.length === 2 &&
+    /^[a-z0-9-]+$/.test(parts[0]) &&
+    /^[a-z0-9-]+$/.test(parts[1])
+  );
 }
 
 function loadSkill(rootDir, skillId) {

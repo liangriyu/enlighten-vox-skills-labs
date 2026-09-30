@@ -17,6 +17,7 @@ export async function writeInstallState(resolved, plan, options = {}) {
     const skill = resolved.skills[index];
     const record = plan.skills[index];
     const lockKey = `skill:${skill.id}`;
+    const requester = resolved.suite ? `suite:${resolved.suite.id}` : `skill:${skill.id}`;
     const entry = lockfile.installed[lockKey] ?? {
       type: "skill",
       version: skill.version,
@@ -31,13 +32,16 @@ export async function writeInstallState(resolved, plan, options = {}) {
     entry.domain = skill.id.split("/")[0];
     entry.source = buildSourceRecord(resolved.source, skill.manifestPath, options);
     entry.integrity = await calculateSkillIntegrity(skill);
-    entry.requestedBy = mergeUnique(
-      entry.requestedBy,
-      resolved.suite ? `suite:${resolved.suite.id}` : `skill:${skill.id}`
-    );
     entry.agents ??= {};
     entry.agents[plan.agent] ??= {};
-    entry.agents[plan.agent][plan.scope] = lockRecord(record);
+    entry.agents[plan.agent][plan.scope] = {
+      ...lockRecord(record),
+      requestedBy: mergeUnique(
+        entry.agents[plan.agent][plan.scope]?.requestedBy,
+        requester
+      )
+    };
+    entry.requestedBy = collectScopedRequestedBy(entry);
     lockfile.installed[lockKey] = entry;
   }
 
@@ -234,6 +238,18 @@ function quote(value) {
 function mergeUnique(existing, value) {
   const values = Array.isArray(existing) ? existing : [];
   return [...new Set([...values, value])].sort();
+}
+
+function collectScopedRequestedBy(entry) {
+  const values = new Set();
+  for (const scopes of Object.values(entry.agents ?? {})) {
+    for (const record of Object.values(scopes ?? {})) {
+      for (const requester of record.requestedBy ?? []) {
+        values.add(requester);
+      }
+    }
+  }
+  return [...values].sort();
 }
 
 function sortLockfile(lockfile) {

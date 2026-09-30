@@ -14,8 +14,9 @@ import {
   writeInstallState,
   writeProjectConfig
 } from "./lib/lockfile.js";
+import { validateRegistryManifests } from "./lib/manifest.js";
 import { resolveProjectScope } from "./lib/project-scope.js";
-import { resolveRequest, withResolvedInstallRequest } from "./lib/resolver.js";
+import { resolveRequest, withRegistryRoot, withResolvedInstallRequest } from "./lib/resolver.js";
 import {
   buildRemovePlan,
   buildUpdatePlan,
@@ -39,11 +40,17 @@ export async function run(argv, io = {}) {
     }
 
     if (parsed.command === "add") {
-      const projectScope = await resolveProjectScope(parsed.options, {
-        cwd,
-        stdin: io.stdin ?? process.stdin,
-        stdout
-      });
+      const projectScope = await resolveProjectScope(
+        {
+          ...parsed.options,
+          requireExplicitProjectDir: parsed.options.yes === true && parsed.options.dryRun !== true
+        },
+        {
+          cwd,
+          stdin: io.stdin ?? process.stdin,
+          stdout
+        }
+      );
 
       return await withResolvedInstallRequest(
         parsed.target,
@@ -67,15 +74,16 @@ export async function run(argv, io = {}) {
 
           await assertProjectConfigReady(projectScope, parsed.options);
           await preflightInstallTargets(plan, parsed.options);
+          const sourceRoot = resolved.source?.sourceRoot ?? resolved.source?.localRoot ?? cwd;
           const installed = await installResolvedSkills(resolved, plan, {
             ...parsed.options,
-            rootDir: cwd,
+            rootDir: sourceRoot,
             source: resolved.source?.type ?? "workspace"
           });
           const projectConfigPath = await writeProjectConfig(projectScope, plan, parsed.options);
           const lockfilePath = await writeInstallState(resolved, plan, {
             ...parsed.options,
-            rootDir: cwd
+            rootDir: sourceRoot
           });
 
           stdout.write(
@@ -103,9 +111,19 @@ export async function run(argv, io = {}) {
     }
 
     if (parsed.command === "validate") {
-      resolveRequest("vox-reputation/vox-keyword-patrol", { rootDir: cwd });
-      stdout.write("Manifest validation passed.\n");
-      return 0;
+      return await withRegistryRoot(
+        {
+          ...parsed.options,
+          rootDir: cwd
+        },
+        ({ rootDir }) => {
+          const counts = validateRegistryManifests(rootDir);
+          stdout.write(
+            `Manifest validation passed. domains=${counts.domains} suites=${counts.suites} skills=${counts.skills} resources=${counts.resources}\n`
+          );
+          return 0;
+        }
+      );
     }
 
     if (parsed.command === "list") {
@@ -133,11 +151,17 @@ export async function run(argv, io = {}) {
     }
 
     if (parsed.command === "remove") {
-      const projectScope = await resolveProjectScope(parsed.options, {
-        cwd,
-        stdin: io.stdin ?? process.stdin,
-        stdout
-      });
+      const projectScope = await resolveProjectScope(
+        {
+          ...parsed.options,
+          requireExplicitProjectDir: parsed.options.yes === true && parsed.options.dryRun !== true
+        },
+        {
+          cwd,
+          stdin: io.stdin ?? process.stdin,
+          stdout
+        }
+      );
       const state = await loadInstallState(parsed.options, projectScope);
       const removePlan = buildRemovePlan(state, parsed.target, parsed.options);
 
@@ -178,11 +202,17 @@ export async function run(argv, io = {}) {
     }
 
     if (parsed.command === "update") {
-      const projectScope = await resolveProjectScope(parsed.options, {
-        cwd,
-        stdin: io.stdin ?? process.stdin,
-        stdout
-      });
+      const projectScope = await resolveProjectScope(
+        {
+          ...parsed.options,
+          requireExplicitProjectDir: parsed.options.yes === true && parsed.options.dryRun !== true
+        },
+        {
+          cwd,
+          stdin: io.stdin ?? process.stdin,
+          stdout
+        }
+      );
       const state = await loadInstallState(parsed.options, projectScope);
       const updatePlan = buildUpdatePlan(state, parsed.target, parsed.options);
 
@@ -200,27 +230,37 @@ export async function run(argv, io = {}) {
       await assertProjectConfigReady(projectScope, parsed.options);
       const updated = [];
       for (const target of updatePlan.targets) {
-        const resolved = resolveRequest(target.request, { rootDir: cwd });
-        const plan = buildInstallPlan(resolved, parsed.options, projectScope);
-        await preflightInstallTargets(plan, parsed.options);
-        const installed = await installResolvedSkills(resolved, plan, {
-          ...parsed.options,
-          rootDir: cwd
-        });
-        const lockfilePath = await writeInstallState(resolved, plan, {
-          ...parsed.options,
-          rootDir: cwd
-        });
-        updated.push({
-          request: target.request,
-          type: target.type,
-          lockfilePath,
-          installed: installed.map(({ id, installPath, markerPath }) => ({
-            id,
-            installPath,
-            markerPath
-          }))
-        });
+        await withRegistryRoot(
+          {
+            ...parsed.options,
+            rootDir: cwd
+          },
+          async ({ rootDir }) => {
+            const resolved = resolveRequest(target.request, { rootDir });
+            const planOptions = updateOptionsFromExistingRecords(parsed.options, target.records);
+            const plan = buildInstallPlan(resolved, planOptions, projectScope);
+            preserveUpdateInstallBindings(plan, target.records);
+            await preflightInstallTargets(plan, parsed.options);
+            const installed = await installResolvedSkills(resolved, plan, {
+              ...planOptions,
+              rootDir
+            });
+            const lockfilePath = await writeInstallState(resolved, plan, {
+              ...planOptions,
+              rootDir
+            });
+            updated.push({
+              request: target.request,
+              type: target.type,
+              lockfilePath,
+              installed: installed.map(({ id, installPath, markerPath }) => ({
+                id,
+                installPath,
+                markerPath
+              }))
+            });
+          }
+        );
       }
 
       stdout.write(
@@ -262,20 +302,62 @@ export async function run(argv, io = {}) {
   }
 }
 
+function updateOptionsFromExistingRecords(options, records = []) {
+  const firstEnlightenProjectRecord = records.find(
+    (record) =>
+      record.agent === "enlighten-ai" &&
+      record.scope === "project" &&
+      record.organizationId &&
+      record.spaceId
+  );
+
+  if (!firstEnlightenProjectRecord) {
+    return options;
+  }
+
+  return {
+    ...options,
+    organizationId: options.organizationId ?? firstEnlightenProjectRecord.organizationId,
+    spaceId: options.spaceId ?? firstEnlightenProjectRecord.spaceId
+  };
+}
+
+function preserveUpdateInstallBindings(plan, records = []) {
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  plan.skills = plan.skills.map((record) => {
+    const existing = recordsById.get(record.id);
+    if (!existing) {
+      return record;
+    }
+
+    return {
+      ...record,
+      installPath: existing.installPath,
+      scopeKind: existing.scopeKind,
+      projectDir: existing.projectDir,
+      projectId: existing.projectId,
+      organizationId: existing.organizationId,
+      spaceId: existing.spaceId,
+      instanceKey: existing.instanceKey,
+      marker: existing.marker ?? record.marker
+    };
+  });
+}
+
 function helpText() {
   return `@enlighten-vox/skills MVP
 
 Usage:
-  skills add <domain>/<suite-or-skill|git-source> [--suite <id>|--skill <id>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run]
+  skills add <domain>/<suite-or-skill|git-source> [--registry <path-or-git-source>] [--suite <id>|--skill <id>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run]
   skills list [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>]
   skills remove <domain>/<suite-or-skill> [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run] [--yes]
-  skills update [domain/suite-or-skill] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run] [--yes]
+  skills update [domain/suite-or-skill] [--registry <path-or-git-source>] [--agent codex|enlighten-ai] [--scope global|project] [--project-dir <path>] [--dry-run] [--yes]
   skills doctor [--scope project --project-dir <path>]
-  skills validate
+  skills validate [--registry <path-or-git-source>]
 
 Project scope:
-  Project scope defaults to the current working directory.
-  Use --project-dir <path> to target a different project.
+  Read-only project commands default to the current working directory.
+  Non-interactive project mutations require --project-dir <path>.
 
 Install:
   Use --yes for non-interactive installation.

@@ -27,15 +27,74 @@ test("top-level help option prints CLI usage", async () => {
   assert.match(stdout.output, /skills update/);
 });
 
-test("project scope defaults to cwd in non-interactive mode without projectDir", async () => {
+test("project scope defaults to cwd for read-only project commands", async () => {
   const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-default-"));
   const projectScope = await resolveProjectScope(
-    { scope: "project", yes: true },
+    { scope: "project" },
     { cwd: projectDir, stdin: { isTTY: false } }
   );
 
   assert.equal(projectScope.projectDir, fsSync.realpathSync(projectDir));
   assert.match(projectScope.projectId, /^project-[a-f0-9]{12}$/);
+});
+
+test("non-interactive project mutations require explicit projectDir", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-default-"));
+
+  await assert.rejects(
+    () =>
+      resolveProjectScope(
+        { scope: "project", yes: true, requireExplicitProjectDir: true },
+        { cwd: projectDir, stdin: { isTTY: false } }
+      ),
+    /Project mutations in non-interactive mode require --project-dir/
+  );
+});
+
+test("managed targets outside a registry checkout require explicit registry", async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "skills-not-registry-"));
+  const stdout = createWriter();
+  const stderr = createWriter();
+
+  const exitCode = await run(
+    ["add", "vox-reputation/vox-keyword-patrol", "--dry-run"],
+    {
+      cwd,
+      stdin: { isTTY: false },
+      stdout,
+      stderr
+    }
+  );
+
+  assert.equal(exitCode, 2);
+  assert.match(stderr.output, /No Skill registry checkout found/);
+});
+
+test("managed targets can resolve from explicit registry outside cwd", async () => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), "skills-with-registry-"));
+  const stdout = createWriter();
+  const stderr = createWriter();
+
+  const exitCode = await run(
+    [
+      "add",
+      "vox-reputation/vox-keyword-patrol",
+      "--registry",
+      repoRoot,
+      "--dry-run"
+    ],
+    {
+      cwd,
+      stdin: { isTTY: false },
+      stdout,
+      stderr
+    }
+  );
+
+  assert.equal(exitCode, 0, stderr.output);
+  const plan = JSON.parse(stdout.output);
+  assert.equal(plan.request, "vox-reputation/vox-keyword-patrol");
+  assert.equal(plan.skills.length, 2);
 });
 
 test("enlighten project dry-run binds selected projectDir to scoped install path", async () => {
@@ -148,6 +207,42 @@ test("enlighten project install writes skills, marker, project config, and lockf
     lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].project
       .instanceKey,
     "space:org-test:space-test:vox-keyword-patrol"
+  );
+});
+
+test("enlighten project install rejects placeholder organization and space", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-missing-space-"));
+  const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-missing-space-"));
+  const stdout = createWriter();
+  const stderr = createWriter();
+
+  const exitCode = await run(
+    [
+      "add",
+      "vox-reputation/vox-keyword-patrol",
+      "--agent",
+      "enlighten-ai",
+      "--scope",
+      "project",
+      "--project-dir",
+      projectDir,
+      "--enlighten-user-data",
+      userData,
+      "--yes"
+    ],
+    {
+      cwd: repoRoot,
+      stdin: { isTTY: false },
+      stdout,
+      stderr
+    }
+  );
+
+  assert.equal(exitCode, 2);
+  assert.match(stderr.output, /Enlighten project installs require --organization-id and --space-id/);
+  assert.equal(
+    fsSync.existsSync(path.join(userData, "codex-home", "skills", "by-space")),
+    false
   );
 });
 
@@ -492,6 +587,127 @@ test("remove suite keeps directly requested shared skills", async () => {
   );
 });
 
+test("remove suite only removes the selected agent and scope", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-cross-scope-"));
+  const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-cross-scope-"));
+  const codexStdout = createWriter();
+  const codexStderr = createWriter();
+  const enlightenStdout = createWriter();
+  const enlightenStderr = createWriter();
+  const removeStdout = createWriter();
+  const removeStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: codexStdout,
+        stderr: codexStderr
+      }
+    ),
+    0,
+    codexStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "enlighten-ai",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--enlighten-user-data",
+        userData,
+        "--organization-id",
+        "org-test",
+        "--space-id",
+        "space-test",
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: enlightenStdout,
+        stderr: enlightenStderr
+      }
+    ),
+    0,
+    enlightenStderr.output
+  );
+
+  assert.equal(
+    await run(
+      [
+        "remove",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "codex",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: removeStdout,
+        stderr: removeStderr
+      }
+    ),
+    0,
+    removeStderr.output
+  );
+
+  const result = JSON.parse(removeStdout.output);
+  const lockfile = JSON.parse(await fs.readFile(path.join(projectDir, "skills.lock"), "utf8"));
+  assert.equal(result.removed.length, 2);
+  assert.equal(
+    fsSync.existsSync(path.join(projectDir, ".codex", "skills", "vox-keyword-patrol")),
+    false
+  );
+  assert.equal(
+    fsSync.existsSync(
+      path.join(
+        userData,
+        "codex-home",
+        "skills",
+        "by-space",
+        "organizations",
+        "org-test",
+        "spaces",
+        "space-test",
+        "vox-keyword-patrol"
+      )
+    ),
+    true
+  );
+  assert.equal(
+    lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents.codex,
+    undefined
+  );
+  assert.equal(
+    Boolean(lockfile.installed["skill:vox-reputation/vox-keyword-patrol"].agents["enlighten-ai"].project),
+    true
+  );
+});
+
 test("update refreshes a workspace suite install from source", async () => {
   const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-update-"));
   const installStdout = createWriter();
@@ -578,6 +794,93 @@ test("update refreshes a workspace suite install from source", async () => {
       "skill:vox-reputation/vox-keyword-patrol"
     ].integrity,
     "sha256-stale"
+  );
+});
+
+test("update reuses enlighten project binding from lockfile", async () => {
+  const projectDir = await fs.mkdtemp(path.join(os.tmpdir(), "skills-project-update-enlighten-"));
+  const userData = await fs.mkdtemp(path.join(os.tmpdir(), "enlighten-user-data-update-"));
+  const installStdout = createWriter();
+  const installStderr = createWriter();
+  const updateStdout = createWriter();
+  const updateStderr = createWriter();
+
+  assert.equal(
+    await run(
+      [
+        "add",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "enlighten-ai",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--enlighten-user-data",
+        userData,
+        "--organization-id",
+        "org-test",
+        "--space-id",
+        "space-test",
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: installStdout,
+        stderr: installStderr
+      }
+    ),
+    0,
+    installStderr.output
+  );
+
+  const installedSkillPath = path.join(
+    userData,
+    "codex-home",
+    "skills",
+    "by-space",
+    "organizations",
+    "org-test",
+    "spaces",
+    "space-test",
+    "vox-keyword-patrol",
+    "SKILL.md"
+  );
+  await fs.writeFile(installedSkillPath, "stale enlighten skill\n", "utf8");
+
+  assert.equal(
+    await run(
+      [
+        "update",
+        "vox-reputation/vox-keyword-patrol",
+        "--agent",
+        "enlighten-ai",
+        "--scope",
+        "project",
+        "--project-dir",
+        projectDir,
+        "--yes"
+      ],
+      {
+        cwd: repoRoot,
+        stdin: { isTTY: false },
+        stdout: updateStdout,
+        stderr: updateStderr
+      }
+    ),
+    0,
+    updateStderr.output
+  );
+
+  const result = JSON.parse(updateStdout.output);
+  assert.equal(result.updated[0].installed[1].installPath.includes(userData), true);
+  assert.equal(
+    await fs.readFile(installedSkillPath, "utf8"),
+    await fs.readFile(
+      path.join(repoRoot, "domains/vox-reputation/skills/vox-keyword-patrol/SKILL.md"),
+      "utf8"
+    )
   );
 });
 

@@ -90,14 +90,14 @@ V1 必须支持：
 - `registry.yaml`、`domain.yaml`、`suite.yaml`、`skill.yaml` 四类 manifest。
 - `skills.lock` 锁定实际安装结果。
 - `@enlighten-vox/skills` CLI。
-- `npx @enlighten-vox/skills add <suite|skill>`。
+- `npx @enlighten-vox/skills add <suite|skill> --registry <path-or-git-source>`，或在 registry checkout 内直接安装。
 - `npx @enlighten-vox/skills remove <suite|skill>`。
 - `npx @enlighten-vox/skills update [suite|skill]`。
 - `npx @enlighten-vox/skills list`。
 - `npx @enlighten-vox/skills doctor`。
 - Codex Adapter。
 - Enlighten AI Adapter。
-- 非交互模式优先，交互模式可后置；`--scope project` 默认绑定当前 shell 目录，并必须支持由用户显式选择或传入项目工作目录。
+- 非交互模式优先，交互模式可后置；只读 project 命令可默认绑定当前 shell 目录，真实 project install/update/remove 必须显式传入 `--project-dir`，避免写入错误工作区。
 
 V1 暂不支持：
 
@@ -118,7 +118,7 @@ V1 暂不支持：
 
 建议吸收的设计：
 
-- Source Resolver：支持 GitHub shorthand、GitHub/GitLab/Azure URL、repo tree subpath、SSH/Git URL、本地路径、直接 `SKILL.md` 或 archive 下载。当前 V1 仍以本仓库 `registry.yaml` 为默认入口，但 resolver 应预留 `source` 层，后续可扩展为 `npx @enlighten-vox/skills add <source> --suite vox-reputation/vox-keyword-patrol`。
+- Source Resolver：支持 `github:owner/repo` shorthand、GitHub/GitLab/Azure URL、repo tree subpath、SSH/Git URL、本地路径、直接 `SKILL.md` 或 archive 下载。裸 `owner/repo` 与 managed id 都是双段路径，CLI install 路径应优先要求显式 source 前缀或 `--registry`，避免把 `domain/suite` 误当公开 GitHub 仓库。当前 V1 仍以本仓库 `registry.yaml` 为默认入口，但 resolver 应预留 `source` 层，后续可扩展为 `npx @enlighten-vox/skills add <source> --suite vox-reputation/vox-keyword-patrol`。
 - Source 安全解析：subpath 必须拒绝 `..` 路径穿越；archive 解压必须拒绝绝对路径、Windows drive 路径和逃逸目标目录的条目。
 - 下载与解压限额：直接下载默认限制总下载大小、解压后大小和文件数，避免把安装器变成不受控内容入口。
 - `SKILL.md` frontmatter 校验：至少要求 `name` 与 `description` 为字符串；不满足条件的候选 Skill 不能进入安装计划。
@@ -134,7 +134,7 @@ V1 暂不支持：
 不建议照搬的设计：
 
 - 不把 npm package 变成 Skill 内容仓库；npm 仍只发布 CLI。
-- 不把 project scope 做成无法覆盖的当前目录语义；默认绑定当前 shell 目录，但用户必须可以显式选择或传入 `--project-dir`。
+- 不把 project scope 做成静默当前目录写入语义；只读命令可以默认当前目录，真实变更命令必须可以且在非交互模式下必须通过 `--project-dir` 明确绑定。
 - 不把 Enlighten AI 当作普通 `.agents/skills` 目录；Enlighten AI 的 device/space scoped capability store、`.enlighten-install.json`、runtime materialization 边界必须保留。
 - 不把开放生态的全 Agent 安装作为 V1 目标；V1 仅支持 Codex 与 Enlighten AI，Claude Code/Cursor 可等 adapter 边界稳定后再接入。
 
@@ -431,7 +431,7 @@ installed:
 - `source.commit` 锁定 Git commit。
 - `source.sourceUrl/sourceType/ref/path/skillPath` 记录可更新来源，避免 update 时无法定位单个 Skill。
 - `integrity` 锁定内容摘要。
-- `requestedBy` 支持卸载时判断共享 Skill 是否还能删除。
+- `requestedBy` 必须在 skill 顶层和每个 agent/scope 安装记录中都可判定；卸载时以当前 agent/scope 的 requester 集合决定是否删除该具体安装目录，不能被其他 agent/scope 的引用误保留。
 - `agents` 记录安装到哪些 Agent 以及安装位置。
 - project scope 必须记录解析后的 `projectDir`，并把该目录下的 `.skillsrc.yaml` / `skills.lock` 与 Agent 的实际安装路径绑定起来。
 - lockfile 的 `installed` 使用 `skill:<id>` / `suite:<id>` 命名空间，避免 Suite 与 Skill 入口名称相同时互相覆盖。
@@ -1079,7 +1079,7 @@ npx @enlighten-vox/skills add ecommerce/amazon-seller --agent enlighten-ai --sco
 - Enlighten AI 本地 Skill 列表能看到对应 Skill，runtime 能在可调用 Skill 列表或后续物化检查中识别该 Skill。
 - Codex 路径型安装目录有 `.skills-manager.json`。
 - `skills.lock` 记录 suite、skill、source commit、integrity、Codex install path 或 Enlighten `scope/projectDir/projectId/scopeKind/organizationId/spaceId/installPath/instanceKey`。
-- `--scope project --agent enlighten-ai --yes` 缺少 `--project-dir` 时必须默认绑定当前 shell 目录，并在 install plan / lockfile 中记录解析后的 `projectDir`。
+- `--scope project --agent enlighten-ai --yes` 必须显式传入 `--project-dir`，并在 install plan / lockfile 中记录解析后的 `projectDir`；只读命令可默认当前 shell 目录。
 
 查看：
 
